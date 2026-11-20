@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Expr } from '../src/ast.ts'
 import { ParseError } from '../src/errors.ts'
-import { parseExpression } from '../src/parser.ts'
+import { parse, parseExpression } from '../src/parser.ts'
 
 /** Collapse a tree into a nested list so precedence is easy to see. */
 function shape(expr: Expr): unknown {
@@ -157,5 +157,131 @@ describe('parse errors', () => {
       expect((error as ParseError).line).toBe(2)
       expect((error as ParseError).column).toBe(1)
     }
+  })
+})
+
+describe('statements', () => {
+  it('parses an empty program', () => {
+    expect(parse('')).toMatchObject({ type: 'Program', body: [], line: 1, column: 1 })
+    expect(parse('# nothing\n')).toMatchObject({ type: 'Program', body: [] })
+  })
+
+  it('parses let with an expression value', () => {
+    const program = parse('let size = 1 + 2 * 3')
+    expect(program.body).toMatchObject([
+      {
+        type: 'LetStmt',
+        name: 'size',
+        line: 1,
+        column: 1,
+        value: { type: 'BinaryExpr', operator: '+' },
+      },
+    ])
+    const statement = program.body[0]
+    if (statement.type !== 'LetStmt') return
+    expect(shape(statement.value)).toEqual([1, '+', [2, '*', 3]])
+  })
+
+  it('parses several statements, including two on one line', () => {
+    const program = parse('let a = 1 let b = a + 1\nsize')
+    expect(program.body.map((statement) => statement.type)).toEqual([
+      'LetStmt',
+      'LetStmt',
+      'ExprStmt',
+    ])
+    const last = program.body[2]
+    if (last.type !== 'ExprStmt') return
+    expect(shape(last.expression)).toBe('size')
+  })
+
+  it('parses if, else, while, and repeat', () => {
+    const source = `let size = 50
+while size > 0 {
+  repeat 1 + 2 {
+    let step = size
+  }
+}
+if size == 0 {
+  let done = 1
+} else {
+  let done = 0
+}`
+    const program = parse(source)
+    expect(program.body.map((statement) => statement.type)).toEqual([
+      'LetStmt',
+      'WhileStmt',
+      'IfStmt',
+    ])
+
+    const loop = program.body[1]
+    if (loop.type !== 'WhileStmt') return
+    expect(shape(loop.condition)).toEqual(['size', '>', 0])
+    expect(loop.body.statements[0].type).toBe('RepeatStmt')
+    const repeat = loop.body.statements[0]
+    if (repeat.type !== 'RepeatStmt') return
+    expect(shape(repeat.count)).toEqual([1, '+', 2])
+    expect(repeat.body.statements).toMatchObject([{ type: 'LetStmt', name: 'step' }])
+
+    const branch = program.body[2]
+    if (branch.type !== 'IfStmt') return
+    expect(branch.elseBranch?.statements).toMatchObject([{ type: 'LetStmt', name: 'done' }])
+  })
+
+  it('allows an empty block', () => {
+    const program = parse('if 1 { }')
+    const statement = program.body[0]
+    if (statement.type !== 'IfStmt') throw new Error('expected if')
+    expect(statement.thenBranch.statements).toEqual([])
+    expect(statement.elseBranch).toBeNull()
+  })
+
+  it('points a later statement at its own line', () => {
+    const program = parse('# comment\nlet size = 1')
+    expect(program.body[0]).toMatchObject({ type: 'LetStmt', line: 2, column: 1 })
+  })
+
+  it('rejects a let with no name or no equals', () => {
+    expect(() => parse('let = 1')).toThrow(ParseError)
+    try {
+      parse('let x 1')
+      expect.unreachable()
+    } catch (error) {
+      expect((error as ParseError).message).toContain("Expected '='")
+      expect((error as ParseError).column).toBe(7)
+    }
+  })
+
+  it('rejects a missing block', () => {
+    try {
+      parse('while size')
+      expect.unreachable()
+    } catch (error) {
+      expect((error as ParseError).message).toContain("Expected '{'")
+    }
+  })
+
+  it('rejects an unclosed block', () => {
+    try {
+      parse('repeat 4 { let x = 1')
+      expect.unreachable()
+    } catch (error) {
+      expect((error as ParseError).message).toContain("Expected '}'")
+    }
+  })
+
+  it('rejects else that is not attached to an if', () => {
+    expect(() => parse('else { }')).toThrow(ParseError)
+    try {
+      parse('if 1 { else { } }')
+      expect.unreachable()
+    } catch (error) {
+      expect((error as ParseError).message).toContain("Expected '}' before 'else'")
+      expect((error as ParseError).column).toBe(8)
+    }
+  })
+
+  it('rejects fn and return until functions are parsed', () => {
+    expect(() => parse('fn square(s) { }')).toThrow(ParseError)
+    expect(() => parse('return 1')).toThrow(ParseError)
   })
 })

@@ -1,12 +1,29 @@
-import type { BinaryOp, Expr, UnaryOp } from './ast.ts'
+import type {
+  BinaryOp,
+  BlockStmt,
+  Expr,
+  ExprStmt,
+  IfStmt,
+  LetStmt,
+  Program,
+  RepeatStmt,
+  Stmt,
+  UnaryOp,
+  WhileStmt,
+} from './ast.ts'
 import { ParseError } from './errors.ts'
 import { tokenize, type Token, type TokenType } from './lexer.ts'
 
 /**
  * Parser: tokens → AST.
  *
- * This phase reads expressions. Statements (let, if, while, …) come next.
- * A name is a variable for now. Calls such as `square(100)` come with functions.
+ * A program is a list of statements. There are no semicolons: a statement
+ * ends when the next token cannot be part of it. `let`, `if`, `while`, and
+ * `repeat` each own a `{ ... }` block. Any other expression, such as `size + 1`,
+ * stands alone as an expression statement.
+ *
+ * `fn`, `return`, and calls such as `square(100)` come in the next phase.
+ * A name is still just a variable.
  *
  * Expressions use precedence climbing. One loop walks operators from
  * loosest to tightest, instead of a separate function for each level.
@@ -48,6 +65,11 @@ const UNARY: Partial<Record<TokenType, Operator<UnaryOp>>> = {
   MINUS: { operator: '-', precedence: 7 },
 }
 
+/** Parse a whole program: statements until the end of the source. */
+export function parse(source: string): Program {
+  return new Parser(tokenize(source)).parseProgram()
+}
+
 /** Parse one expression and reject any leftover tokens. */
 export function parseExpression(source: string): Expr {
   return new Parser(tokenize(source)).parseExpression()
@@ -61,10 +83,116 @@ class Parser {
     this.tokens = tokens
   }
 
+  parseProgram(): Program {
+    const start = this.peek()
+    const body: Stmt[] = []
+    while (!this.isAtEnd()) body.push(this.statement())
+    return { type: 'Program', body, line: start.line, column: start.column }
+  }
+
   parseExpression(): Expr {
     const expr = this.climb(0)
     if (!this.isAtEnd()) throw this.unexpected()
     return expr
+  }
+
+  /**
+   * A keyword starts `let`, `if`, `while`, or `repeat`.
+   * Anything else is an expression used as a statement.
+   */
+  private statement(): Stmt {
+    if (this.check('LET')) return this.letStatement()
+    if (this.check('IF')) return this.ifStatement()
+    if (this.check('WHILE')) return this.whileStatement()
+    if (this.check('REPEAT')) return this.repeatStatement()
+    return this.expressionStatement()
+  }
+
+  /** `let size = 50`. The `=` and the value are required. */
+  private letStatement(): LetStmt {
+    const keyword = this.advance()
+    const name = this.consume('IDENTIFIER', 'a variable name')
+    this.consume('ASSIGN', "'='")
+    return {
+      type: 'LetStmt',
+      name: name.lexeme,
+      value: this.climb(0),
+      line: keyword.line,
+      column: keyword.column,
+    }
+  }
+
+  /** `if cond { ... }` or `if cond { ... } else { ... }`. */
+  private ifStatement(): IfStmt {
+    const keyword = this.advance()
+    const condition = this.climb(0)
+    const thenBranch = this.block()
+    let elseBranch: BlockStmt | null = null
+    if (this.check('ELSE')) {
+      this.advance()
+      elseBranch = this.block()
+    }
+    return {
+      type: 'IfStmt',
+      condition,
+      thenBranch,
+      elseBranch,
+      line: keyword.line,
+      column: keyword.column,
+    }
+  }
+
+  /** `while cond { ... }`. */
+  private whileStatement(): WhileStmt {
+    const keyword = this.advance()
+    return {
+      type: 'WhileStmt',
+      condition: this.climb(0),
+      body: this.block(),
+      line: keyword.line,
+      column: keyword.column,
+    }
+  }
+
+  /** `repeat n { ... }`. The count is an expression, not just a literal. */
+  private repeatStatement(): RepeatStmt {
+    const keyword = this.advance()
+    return {
+      type: 'RepeatStmt',
+      count: this.climb(0),
+      body: this.block(),
+      line: keyword.line,
+      column: keyword.column,
+    }
+  }
+
+  /**
+   * `{ ... }`. Statements are read until the matching `}`.
+   * A block is a body, not a statement, so this is only called by
+   * `if`, `while`, and `repeat`.
+   */
+  private block(): BlockStmt {
+    const brace = this.consume('LBRACE', "'{'")
+    const statements: Stmt[] = []
+    while (!this.check('RBRACE') && !this.isAtEnd()) {
+      if (this.check('ELSE')) {
+        throw new ParseError("Expected '}' before 'else'", this.peek().line, this.peek().column)
+      }
+      statements.push(this.statement())
+    }
+    this.consume('RBRACE', "'}'")
+    return { type: 'BlockStmt', statements, line: brace.line, column: brace.column }
+  }
+
+  /** An expression standing alone, such as `size + 1`. */
+  private expressionStatement(): ExprStmt {
+    const expression = this.climb(0)
+    return {
+      type: 'ExprStmt',
+      expression,
+      line: expression.line,
+      column: expression.column,
+    }
   }
 
   /**
@@ -148,6 +276,15 @@ class Parser {
     }
 
     throw this.expected('an expression')
+  }
+
+  private check(type: TokenType): boolean {
+    return this.peek().type === type
+  }
+
+  private consume(type: TokenType, what: string): Token {
+    if (!this.check(type)) throw this.expected(what)
+    return this.advance()
   }
 
   private peek(): Token {
