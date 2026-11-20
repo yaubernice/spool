@@ -3,7 +3,7 @@
  * Line and column are 1-based. The message includes them so a thrown
  * error is readable in a test failure or the console.
  *
- * Runtime errors will use this same shape in a later phase.
+ * Runtime errors use this same shape.
  */
 export class SourceError extends Error {
   readonly line: number
@@ -22,3 +22,6 @@ export class LexError extends SourceError {}
 
 /** The parser found tokens that do not form a valid expression or statement. */
 export class ParseError extends SourceError {}
+
+/** The interpreter found a problem while running the program. */
+export class RuntimeError extends SourceError {}
