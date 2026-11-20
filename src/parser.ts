@@ -1,12 +1,16 @@
 import type {
   BinaryOp,
   BlockStmt,
+  CallExpr,
   Expr,
   ExprStmt,
+  FnStmt,
   IfStmt,
   LetStmt,
+  Parameter,
   Program,
   RepeatStmt,
+  ReturnStmt,
   Stmt,
   UnaryOp,
   WhileStmt,
@@ -18,12 +22,13 @@ import { tokenize, type Token, type TokenType } from './lexer.ts'
  * Parser: tokens → AST.
  *
  * A program is a list of statements. There are no semicolons: a statement
- * ends when the next token cannot be part of it. `let`, `if`, `while`, and
- * `repeat` each own a `{ ... }` block. Any other expression, such as `size + 1`,
- * stands alone as an expression statement.
+ * ends when the next token cannot be part of it. `let`, `if`, `while`,
+ * `repeat`, and `fn` each own a `{ ... }` block.
  *
- * `fn`, `return`, and calls such as `square(100)` come in the next phase.
- * A name is still just a variable.
+ * A call is written `name(arg, ...)`. The turtle commands also have a
+ * statement form with a fixed number of arguments and no parentheses:
+ * `forward s`, `turn 90`, `penup`. A name that is not one of those
+ * commands is just a variable.
  *
  * Expressions use precedence climbing. One loop walks operators from
  * loosest to tightest, instead of a separate function for each level.
@@ -36,8 +41,26 @@ import { tokenize, type Token, type TokenType } from './lexer.ts'
  *   + -                5
  *   * / %              6
  *   -                  7   prefix, unary minus
- *   number, string, name, ( )
+ *   number, string, name, name(...), ( )
  */
+
+/**
+ * Statement form of the built-in commands.
+ * `penup` takes nothing, so the next word is a new statement.
+ * `goto` takes two expressions: `goto 10 20`.
+ * `forward(s)` still works, because a following `(` uses the normal call form.
+ */
+const BUILTIN_ARITY: Readonly<Record<string, number>> = {
+  forward: 1,
+  back: 1,
+  turn: 1,
+  penup: 0,
+  pendown: 0,
+  color: 1,
+  width: 1,
+  goto: 2,
+  print: 1,
+}
 
 interface Operator<T> {
   operator: T
@@ -78,6 +101,8 @@ export function parseExpression(source: string): Expr {
 class Parser {
   private readonly tokens: Token[]
   private current = 0
+  /** How many `fn` bodies we are currently inside. `return` is only legal when this is > 0. */
+  private fnDepth = 0
 
   constructor(tokens: Token[]) {
     this.tokens = tokens
@@ -97,7 +122,8 @@ class Parser {
   }
 
   /**
-   * A keyword starts `let`, `if`, `while`, or `repeat`.
+   * A keyword starts `let`, `if`, `while`, `repeat`, `fn`, or `return`.
+   * A turtle command can take its arguments without parentheses.
    * Anything else is an expression used as a statement.
    */
   private statement(): Stmt {
@@ -105,6 +131,10 @@ class Parser {
     if (this.check('IF')) return this.ifStatement()
     if (this.check('WHILE')) return this.whileStatement()
     if (this.check('REPEAT')) return this.repeatStatement()
+    if (this.check('FN')) return this.fnStatement()
+    if (this.check('RETURN')) return this.returnStatement()
+    const command = this.commandStatement()
+    if (command) return command
     return this.expressionStatement()
   }
 
@@ -184,7 +214,90 @@ class Parser {
     return { type: 'BlockStmt', statements, line: brace.line, column: brace.column }
   }
 
-  /** An expression standing alone, such as `size + 1`. */
+  /** `fn square(s) { ... }`. Parameters are names separated by commas. */
+  private fnStatement(): FnStmt {
+    const keyword = this.advance()
+    const name = this.consume('IDENTIFIER', 'a function name')
+    this.consume('LPAREN', "'('")
+    const params: Parameter[] = []
+    if (!this.check('RPAREN')) {
+      params.push(this.parameter(params))
+      while (this.check('COMMA')) {
+        this.advance()
+        params.push(this.parameter(params))
+      }
+    }
+    this.consume('RPAREN', "')'")
+
+    this.fnDepth++
+    const body = this.block()
+    this.fnDepth--
+
+    return {
+      type: 'FnStmt',
+      name: name.lexeme,
+      params,
+      body,
+      line: keyword.line,
+      column: keyword.column,
+    }
+  }
+
+  private parameter(soFar: Parameter[]): Parameter {
+    const token = this.consume('IDENTIFIER', 'a parameter name')
+    if (soFar.some((param) => param.name === token.lexeme)) {
+      throw new ParseError(`Duplicate parameter '${token.lexeme}'`, token.line, token.column)
+    }
+    return { name: token.lexeme, line: token.line, column: token.column }
+  }
+
+  /**
+   * `return` or `return expr`.
+   * The expression is read only when the next token can start one,
+   * so `return }` is a bare return and `return n * 2` returns the product.
+   */
+  private returnStatement(): ReturnStmt {
+    const keyword = this.advance()
+    if (this.fnDepth === 0) {
+      throw new ParseError('return must be inside a function', keyword.line, keyword.column)
+    }
+    return {
+      type: 'ReturnStmt',
+      value: this.startsExpression() ? this.climb(0) : null,
+      line: keyword.line,
+      column: keyword.column,
+    }
+  }
+
+  /**
+   * `forward s`, `goto 10 20`, `penup`.
+   * Returns null when the name is not a command, or when `(` follows,
+   * so `forward(s)` stays a normal call.
+   */
+  private commandStatement(): ExprStmt | null {
+    if (!this.check('IDENTIFIER')) return null
+    const name = this.peek()
+    const arity = BUILTIN_ARITY[name.lexeme]
+    if (arity === undefined || this.peekNext().type === 'LPAREN') return null
+
+    this.advance()
+    const args: Expr[] = []
+    for (let i = 0; i < arity; i++) args.push(this.climb(0))
+    return {
+      type: 'ExprStmt',
+      expression: {
+        type: 'CallExpr',
+        callee: name.lexeme,
+        args,
+        line: name.line,
+        column: name.column,
+      },
+      line: name.line,
+      column: name.column,
+    }
+  }
+
+  /** An expression standing alone, such as `size + 1` or `square(100)`. */
   private expressionStatement(): ExprStmt {
     const expression = this.climb(0)
     return {
@@ -259,6 +372,7 @@ class Parser {
 
     if (token.type === 'IDENTIFIER') {
       this.advance()
+      if (this.check('LPAREN')) return this.finishCall(token)
       return {
         type: 'VariableExpr',
         name: token.lexeme,
@@ -278,6 +392,39 @@ class Parser {
     throw this.expected('an expression')
   }
 
+  /** `name(arg, arg, ...)`. The opening `(` has not been consumed yet. */
+  private finishCall(name: Token): CallExpr {
+    this.advance()
+    const args: Expr[] = []
+    if (!this.check('RPAREN')) {
+      args.push(this.climb(0))
+      while (this.check('COMMA')) {
+        this.advance()
+        args.push(this.climb(0))
+      }
+    }
+    this.consume('RPAREN', "')'")
+    return {
+      type: 'CallExpr',
+      callee: name.lexeme,
+      args,
+      line: name.line,
+      column: name.column,
+    }
+  }
+
+  /** True when the next token is a legal start for an expression. */
+  private startsExpression(): boolean {
+    return (
+      this.check('NUMBER') ||
+      this.check('STRING') ||
+      this.check('IDENTIFIER') ||
+      this.check('MINUS') ||
+      this.check('NOT') ||
+      this.check('LPAREN')
+    )
+  }
+
   private check(type: TokenType): boolean {
     return this.peek().type === type
   }
@@ -289,6 +436,10 @@ class Parser {
 
   private peek(): Token {
     return this.tokens[this.current]
+  }
+
+  private peekNext(): Token {
+    return this.tokens[Math.min(this.current + 1, this.tokens.length - 1)]
   }
 
   private advance(): Token {

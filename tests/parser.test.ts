@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Expr } from '../src/ast.ts'
+import type { Expr, Stmt } from '../src/ast.ts'
 import { ParseError } from '../src/errors.ts'
 import { parse, parseExpression } from '../src/parser.ts'
 
@@ -280,8 +280,134 @@ if size == 0 {
     }
   })
 
-  it('rejects fn and return until functions are parsed', () => {
-    expect(() => parse('fn square(s) { }')).toThrow(ParseError)
-    expect(() => parse('return 1')).toThrow(ParseError)
+  it('rejects return outside a function', () => {
+    try {
+      parse('return 1')
+      expect.unreachable()
+    } catch (error) {
+      expect(error).toBeInstanceOf(ParseError)
+      expect((error as ParseError).message).toContain('return must be inside a function')
+      expect((error as ParseError).column).toBe(1)
+    }
   })
 })
+
+describe('functions and calls', () => {
+  it('parses the square spiral', () => {
+    const source = `fn square(s) {
+  repeat 4 { forward s  turn 90 }
+}
+repeat 36 {
+  square(100)
+  turn 10
+}`
+    const program = parse(source)
+    expect(program.body.map((statement) => statement.type)).toEqual(['FnStmt', 'RepeatStmt'])
+
+    const fn = program.body[0]
+    if (fn.type !== 'FnStmt') return
+    expect(fn.name).toBe('square')
+    expect(fn.params).toEqual([{ name: 's', line: 1, column: 11 }])
+
+    const inner = fn.body.statements[0]
+    if (inner.type !== 'RepeatStmt') return
+    expect(inner.body.statements.map((statement) => callOf(statement))).toEqual([
+      ['forward', ['s']],
+      ['turn', [90]],
+    ])
+
+    const outer = program.body[1]
+    if (outer.type !== 'RepeatStmt') return
+    expect(outer.body.statements.map((statement) => callOf(statement))).toEqual([
+      ['square', [100]],
+      ['turn', [10]],
+    ])
+  })
+
+  it('parses parameters, an empty list, and a returned call', () => {
+    const program = parse(`fn add(a, b) {
+  return a + b
+}
+fn zero() {
+  return
+}`)
+    const add = program.body[0]
+    const zero = program.body[1]
+    if (add.type !== 'FnStmt' || zero.type !== 'FnStmt') throw new Error('expected functions')
+    expect(add.params.map((param) => param.name)).toEqual(['a', 'b'])
+    const returned = add.body.statements[0]
+    if (returned.type !== 'ReturnStmt' || returned.value === null) throw new Error('expected return')
+    expect(shape(returned.value)).toEqual(['a', '+', 'b'])
+    expect(zero.params).toEqual([])
+    expect(zero.body.statements[0]).toMatchObject({ type: 'ReturnStmt', value: null })
+  })
+
+  it('parses a call inside an expression', () => {
+    expect(shape(parseExpression('square(1, 2 * 3)'))).toEqual(['square', [1, [2, '*', 3]]])
+    expect(shape(parseExpression('fact(n - 1)'))).toEqual(['fact', [['n', '-', 1]]])
+  })
+
+  it('lets a command keep the following statement when it takes no arguments', () => {
+    const program = parse('penup pendown')
+    expect(program.body.map((statement) => callOf(statement))).toEqual([
+      ['penup', []],
+      ['pendown', []],
+    ])
+  })
+
+  it('reads the fixed arguments of a command', () => {
+    const program = parse('goto 10 + 1 20 print "red"')
+    expect(program.body.map((statement) => callOf(statement))).toEqual([
+      ['goto', [[10, '+', 1], 20]],
+      ['print', ['red']],
+    ])
+  })
+
+  it('uses the parenthesized form when a command is followed by (', () => {
+    const program = parse('forward(s)')
+    expect(program.body.map((statement) => callOf(statement))).toEqual([['forward', ['s']]])
+  })
+
+  it('does not turn a user function into a bare command', () => {
+    const program = parse('square 100')
+    expect(program.body).toHaveLength(2)
+    const first = program.body[0]
+    const second = program.body[1]
+    if (first.type !== 'ExprStmt' || second.type !== 'ExprStmt') return
+    expect(shape(first.expression)).toBe('square')
+    expect(shape(second.expression)).toBe(100)
+  })
+
+  it('parses a recursive function', () => {
+    const program = parse(`fn fact(n) {
+  if n == 0 {
+    return 1
+  } else {
+    return n * fact(n - 1)
+  }
+}`)
+    const fn = program.body[0]
+    if (fn.type !== 'FnStmt') return
+    const branch = fn.body.statements[0]
+    if (branch.type !== 'IfStmt' || branch.elseBranch === null) return
+    const recursive = branch.elseBranch.statements[0]
+    if (recursive.type !== 'ReturnStmt' || recursive.value === null) return
+    expect(shape(recursive.value)).toEqual(['n', '*', ['fact', [['n', '-', 1]]]])
+  })
+
+  it('rejects a duplicate parameter and a missing parenthesis', () => {
+    try {
+      parse('fn f(a, a) { }')
+      expect.unreachable()
+    } catch (error) {
+      expect((error as ParseError).message).toContain("Duplicate parameter 'a'")
+    }
+    expect(() => parse('fn square(s { }')).toThrow(ParseError)
+    expect(() => parseExpression('square(1')).toThrow(ParseError)
+  })
+})
+
+function callOf(statement: Stmt): unknown {
+  if (statement.type !== 'ExprStmt') return statement.type
+  return shape(statement.expression)
+}
