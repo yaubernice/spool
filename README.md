@@ -37,7 +37,7 @@ Keep it small on purpose.
 |-----------|----------------------------------|
 | `forward` | Move forward by a distance       |
 | `back`    | Move backward                    |
-| `turn`    | Rotate by degrees                |
+| `turn`    | Rotate clockwise by degrees. Heading 0 points up |
 | `penup`   | Stop drawing                     |
 | `pendown` | Start drawing                    |
 | `color`   | Set pen color                    |
@@ -65,7 +65,7 @@ source text
     ↓  parser.ts         AST
     ↓  interpreter.ts    evaluate with scoped environments
     ↓  turtle.ts         draw instructions (injected as built-ins)
-    ↓  playground/       editor + canvas (later phases)
+    ↓  playground/       editor, animation, examples
 ```
 
 | File | Role |
@@ -80,9 +80,21 @@ source text
 
 Runtime guards: step limit and call-depth limit so infinite loops / runaway recursion fail safely.
 
+## Playground
+
+`npm run dev` opens the studio.
+
+- **Run**, or Cmd/Ctrl-Enter, draws the program. The turtle walks each line. Drag **Speed** while it is drawing; the right end of the slider finishes the picture at once.
+- **Spiral**, **Snowflake**, **Tree**, and **Flower** load an example.
+- A mistake is underlined in the editor and shown with the source line and a caret. The page stays up.
+- `print` writes under the editor.
+- The program is stored in the URL hash, so the address is a shareable link.
+
 ## Build phases
 
-1. Project setup (you are here)
+Phases 1–13 are done.
+
+1. Project setup
 2. Lexer
 3. AST types
 4. Parser: expressions
@@ -95,22 +107,20 @@ Runtime guards: step limit and call-depth limit so infinite loops / runaway recu
 11. Turtle module and canvas renderer
 12. Playground: editor, Run, canvas, speed slider
 13. Playground: example gallery, error underlines, shareable URL
-14. Polish: docs, demo GIF, deployment
+14. Polish: demo GIF and deployment
 
 ## Getting started
 
 ```bash
 npm install
 npm test        # unit tests (Vitest)
-npm run dev     # local Vite server
+npm run dev     # playground at http://127.0.0.1:5173/
 npm run build   # production static build
 ```
 
-The live playground (CodeMirror, canvas, examples, shareable links) lands in phases 11–13. Until then, the interpreter is built and tested in the terminal first.
-
 ## Stack
 
-- TypeScript + Vite (static site — GitHub Pages or Vercel ready later)
+- TypeScript + Vite (static site — GitHub Pages or Vercel still to come)
 - Vitest for tests
-- CodeMirror 6 for the editor (playground phase only)
+- CodeMirror 6 for the editor
 - Hand-written lexer, parser, and interpreter — no parsing libraries

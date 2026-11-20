@@ -28,8 +28,11 @@ import { parse } from './parser.ts'
 export const DEFAULT_MAX_STEPS = 100_000
 export const DEFAULT_MAX_CALL_DEPTH = 100
 
-/** A function supplied by the host, for example a turtle command. */
-export type HostFunction = (args: Value[]) => Value
+/**
+ * A function supplied by the host, for example a turtle command.
+ * `at` is the call in the source, so the host can throw a positioned error.
+ */
+export type HostFunction = (args: Value[], at: SourceLocation) => Value
 
 export type Value = number | string | boolean | null | FunctionValue | BuiltinValue
 
@@ -261,7 +264,7 @@ class Interpreter {
     const callee = this.env.get(expr.callee, expr)
     const args = expr.args.map((arg) => this.evaluate(arg))
 
-    if (isBuiltin(callee)) return callee.call(args)
+    if (isBuiltin(callee)) return callee.call(args, expr)
     if (!isFunction(callee)) {
       throw new RuntimeError(`'${expr.callee}' is not a function`, expr.line, expr.column)
     }
