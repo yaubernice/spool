@@ -1,4 +1,4 @@
-import { LexError } from './errors.ts'
+import { LexError, presentError } from './errors.ts'
 
 /**
  * Lexer: source text → tokens.
@@ -66,7 +66,12 @@ const KEYWORDS: Readonly<Record<string, TokenType>> = {
 
 /** Turn source text into tokens. Throws LexError on bad input. */
 export function tokenize(source: string): Token[] {
-  return new Lexer(source).tokenize()
+  try {
+    return new Lexer(source).tokenize()
+  } catch (error) {
+    if (error instanceof LexError) throw presentError(error, source)
+    throw error
+  }
 }
 
 class Lexer {
@@ -233,7 +238,7 @@ class Lexer {
     }
 
     if (this.peek() !== '"') {
-      throw new LexError('Unterminated string', startLine, this.tokenColumn)
+      throw new LexError('Unterminated string. Add a closing quote', startLine, this.tokenColumn)
     }
     this.advance()
     this.addToken('STRING', value)

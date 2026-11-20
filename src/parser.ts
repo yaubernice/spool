@@ -15,7 +15,7 @@ import type {
   UnaryOp,
   WhileStmt,
 } from './ast.ts'
-import { ParseError } from './errors.ts'
+import { ParseError, presentError, SourceError } from './errors.ts'
 import { tokenize, type Token, type TokenType } from './lexer.ts'
 
 /**
@@ -90,12 +90,21 @@ const UNARY: Partial<Record<TokenType, Operator<UnaryOp>>> = {
 
 /** Parse a whole program: statements until the end of the source. */
 export function parse(source: string): Program {
-  return new Parser(tokenize(source)).parseProgram()
+  return present(source, () => new Parser(tokenize(source)).parseProgram())
 }
 
 /** Parse one expression and reject any leftover tokens. */
 export function parseExpression(source: string): Expr {
-  return new Parser(tokenize(source)).parseExpression()
+  return present(source, () => new Parser(tokenize(source)).parseExpression())
+}
+
+function present<T>(source: string, parseSource: () => T): T {
+  try {
+    return parseSource()
+  } catch (error) {
+    if (error instanceof SourceError) throw presentError(error, source)
+    throw error
+  }
 }
 
 class Parser {

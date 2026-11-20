@@ -7,7 +7,7 @@ import type {
   SourceLocation,
   Stmt,
 } from './ast.ts'
-import { RuntimeError } from './errors.ts'
+import { presentError, RuntimeError, SourceError } from './errors.ts'
 import { parse } from './parser.ts'
 
 /**
@@ -59,7 +59,12 @@ interface BuiltinValue {
  * that actually ran, or null when none did.
  */
 export function interpret(source: string, options: InterpretOptions = {}): Value {
-  return new Interpreter(options).run(parse(source))
+  try {
+    return new Interpreter(options).run(parse(source))
+  } catch (error) {
+    if (error instanceof SourceError) throw presentError(error, source)
+    throw error
+  }
 }
 
 class Environment {
@@ -69,7 +74,7 @@ class Environment {
 
   define(name: string, value: Value, at: SourceLocation): void {
     if (this.values.has(name)) {
-      throw new RuntimeError(`'${name}' is already defined`, at.line, at.column)
+      throw new RuntimeError(`'${name}' is already defined in this scope`, at.line, at.column)
     }
     this.values.set(name, value)
   }
@@ -307,14 +312,22 @@ class Interpreter {
 
   private expectBoolean(value: Value, at: SourceLocation): boolean {
     if (typeof value !== 'boolean') {
-      throw new RuntimeError(`Expected a boolean, got ${describeValue(value)}`, at.line, at.column)
+      throw new RuntimeError(
+        `Expected a boolean, but got ${describeValue(value)}`,
+        at.line,
+        at.column,
+      )
     }
     return value
   }
 
   private expectNumber(value: Value, at: SourceLocation): number {
     if (typeof value !== 'number') {
-      throw new RuntimeError(`Expected a number, got ${describeValue(value)}`, at.line, at.column)
+      throw new RuntimeError(
+        `Expected a number, but got ${describeValue(value)}`,
+        at.line,
+        at.column,
+      )
     }
     return value
   }
@@ -322,7 +335,7 @@ class Interpreter {
   private expectWholeNumber(value: Value, at: SourceLocation): number {
     if (typeof value !== 'number' || !Number.isInteger(value)) {
       throw new RuntimeError(
-        `Expected a whole number, got ${describeValue(value)}`,
+        `Expected a whole number, but got ${describeValue(value)}`,
         at.line,
         at.column,
       )
