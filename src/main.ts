@@ -7,8 +7,10 @@ import type { DebugPause, ExecutionStats, ScopeSnapshot, StackFrame, Value } fro
 import { optimize } from './optimize.ts'
 import { parse } from './parser.ts'
 import type { BenchRow } from './playground/bench.worker.ts'
+import { Speaker } from './audio.ts'
 import { Display } from './draw.ts'
 import { InputState } from './input.ts'
+import { createSoundPlayer } from './playground/sound.ts'
 import { paintDisplay, playDrawing, type Playback } from './playground/canvas.ts'
 import { createEditor } from './playground/editor.ts'
 import { examples } from './playground/examples.ts'
@@ -204,7 +206,9 @@ let clock = 0
 let keyQueue: KeyEvent[] = []
 const inputLog: KeyEvent[][] = []
 const liveInput = new InputState()
+const sounds = createSoundPlayer()
 let display = new Display()
+let speaker = new Speaker()
 
 interface TraceFrame {
   line: number
@@ -311,10 +315,11 @@ function run(): void {
   const started = performance.now()
   try {
     display = new Display()
+    speaker = new Speaker()
     const commands = turtle.builtins()
     const opened = openVm(code, {
       builtins: commands,
-      modules: { turtle: commands, draw: display.module(), input: liveInput.module() },
+      modules: { turtle: commands, draw: display.module(), input: liveInput.module(), audio: speaker.module() },
       stats,
       seed,
       optimize: passes(),
@@ -347,6 +352,8 @@ function run(): void {
       if (runState.textContent === 'Drawing…') runState.textContent = 'Done'
     })
     if (display.used) paintDisplay(canvas, display)
+    sounds.unlock()
+    sounds.play(speaker.cues)
     if (opened.handlerCount() > 0) startClock(opened, turtle)
   } catch (error) {
     strokes = turtle.strokes
@@ -391,6 +398,7 @@ async function continueRun(): Promise<void> {
 }
 
 function startClock(opened: ReturnType<typeof openVm>, turtle: Turtle): void {
+  const heard = speaker
   let last = performance.now()
   let acc = 0
   const stepMs = 1000 / 60
@@ -402,10 +410,12 @@ function startClock(opened: ReturnType<typeof openVm>, turtle: Turtle): void {
       while (acc >= stepMs && guard < 5) {
         acc -= stepMs
         display.begin()
+        heard.begin()
         const events = keyQueue.splice(0, keyQueue.length)
         inputLog.push(events)
         opened.frame(events)
         liveInput.endFrame()
+        sounds.play(heard.cues)
         guard++
       }
     } catch (error) {
@@ -471,6 +481,7 @@ canvas.addEventListener('mousedown', () => {
 
 function halt(label: string): void {
   stopContinue = true
+  sounds.silence()
   if (clock) cancelAnimationFrame(clock)
   clock = 0
   keyQueue = []
@@ -501,10 +512,11 @@ function arm(): boolean {
   frames = []
   traceTruncated = false
   display = new Display()
+  speaker = new Speaker()
   const commands = turtle.builtins()
   const opened = openVm(editor.getCode(), {
     builtins: commands,
-    modules: { turtle: commands, draw: display.module(), input: liveInput.module() },
+    modules: { turtle: commands, draw: display.module(), input: liveInput.module(), audio: speaker.module() },
     stats,
     seed,
     optimize: passes(),
@@ -740,6 +752,7 @@ function remember(frame: TraceFrame): void {
 
 function showTrace(index: number): void {
   if (frames.length === 0) return
+  sounds.silence()
   playback?.stop()
   traceIndex = Math.max(0, Math.min(frames.length - 1, index))
   const frame = frames[traceIndex]

@@ -168,6 +168,7 @@ The playground runs the VM. The tree-walker is still the reference implementatio
 | `src/rng.ts` | Seeded `random`, mulberry32 |
 | `src/benchmark.ts` | The three programs the bench panel times |
 | `src/turtle.ts` | Turtle state and drawing commands |
+| `src/audio.ts` | `audio` cues. The page plays them; the timeline does not |
 | `src/playground/` | Editor, canvas, inspector, debugger, timeline, and the bench worker |
 
 Runtime guards: a step limit and a call-depth limit, so an infinite loop or a runaway recursion fails safely instead of freezing the page.
@@ -184,7 +185,7 @@ Runtime guards: a step limit and a call-depth limit, so an infinite loop or a ru
 
 ## Where this is going
 
-`use`, the 60Hz clock, `draw`, `input`, entities, and tasks are in the language. `draw` records shapes. The page paints them on the animation frame, after the update. A task waits on the game clock, not the wall clock. Still ahead: audio and rewind. The playground can already show bytecode and scrub a recorded trace of a drawing. Those stay. A measured benchmark table and a demo GIF belong to a later phase.
+`use`, the 60Hz clock, `draw`, `input`, entities, tasks, and `audio` are in the language. `draw` records shapes. The page paints them on the animation frame, after the update. A task waits on the game clock, not the wall clock. `audio` records cues. The page plays them, and the timeline stays silent. Still ahead: rewind that restores the machine. The playground can already show bytecode and scrub a recorded trace of a drawing. Those stay. A measured benchmark table and a demo GIF belong to a later phase.
 
 ### draw and input
 
@@ -227,6 +228,19 @@ A `task` starts when the game starts, in source order, and runs until it reaches
 One frame does this, in order: `on start` the first time, then any task that has not started, then the clock advances by one tick, then tasks whose `wait` time has arrived, then `on tick`, then `wait until`, then key events, then `when`. Tasks also take their first steps at the end of the script, before the first frame, so a task with no `wait` has already finished by then.
 
 `rect`, `circle`, `line`, and `text` take coordinates in pixels. A plain number is also fine. `sprite` draws an emoji, or a tiny picture when the string has a newline (`.` and space are empty). `camera` shifts the picture. `input.key` is true while the key is held, `input.mouse` is a px vec, and `input.click` is true for the frame the button goes down. The origin is the top left, and y grows downward.
+
+### Audio
+
+```
+use audio
+audio.tone("sine", 880, 0.2s)
+on tick(dt) {
+  if input.key("space") { audio.beep(440, 0.05s) }
+  audio.play("score")
+}
+```
+
+`beep` is a square wave. `tone` takes `sine`, `square`, `triangle`, or `saw`. `play` is `hit`, `score`, or `boom`. The frequency is a plain number. The duration is a time in seconds. The program only records the cue. The page plays the list after the script and after each tick, through Web Audio. Dragging the timeline, or stepping back along it, stops the sound and does not play it again.
 
 ## Playground
 
