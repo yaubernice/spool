@@ -7,7 +7,9 @@ import type { DebugPause, ExecutionStats, ScopeSnapshot, StackFrame, Value } fro
 import { optimize } from './optimize.ts'
 import { parse } from './parser.ts'
 import type { BenchRow } from './playground/bench.worker.ts'
-import { playDrawing, type Playback } from './playground/canvas.ts'
+import { Display } from './draw.ts'
+import { InputState } from './input.ts'
+import { paintDisplay, playDrawing, type Playback } from './playground/canvas.ts'
 import { createEditor } from './playground/editor.ts'
 import { examples } from './playground/examples.ts'
 import {
@@ -197,6 +199,8 @@ let benchRows: BenchRow[] = []
 let clock = 0
 let keyQueue: KeyEvent[] = []
 const inputLog: KeyEvent[][] = []
+const liveInput = new InputState()
+let display = new Display()
 
 interface TraceFrame {
   line: number
@@ -301,10 +305,11 @@ function run(): void {
   const stats: ExecutionStats = { steps: 0, maxCallDepth: 0 }
   const started = performance.now()
   try {
+    display = new Display()
     const commands = turtle.builtins()
     const opened = openVm(code, {
       builtins: commands,
-      modules: { turtle: commands },
+      modules: { turtle: commands, draw: display.module(), input: liveInput.module() },
       stats,
       seed,
       optimize: passes(),
@@ -335,6 +340,7 @@ function run(): void {
     playback = playDrawing(canvas, strokes, unitsPerSecond, turtle, () => {
       if (runState.textContent === 'Drawing…') runState.textContent = 'Done'
     })
+    if (display.used) paintDisplay(canvas, display)
     if (opened.handlerCount() > 0) startClock(opened, turtle)
   } catch (error) {
     strokes = turtle.strokes
@@ -389,9 +395,11 @@ function startClock(opened: ReturnType<typeof openVm>, turtle: Turtle): void {
     try {
       while (acc >= stepMs && guard < 5) {
         acc -= stepMs
+        display.begin()
         const events = keyQueue.splice(0, keyQueue.length)
         inputLog.push(events)
         opened.frame(events)
+        liveInput.endFrame()
         guard++
       }
     } catch (error) {
@@ -402,7 +410,8 @@ function startClock(opened: ReturnType<typeof openVm>, turtle: Turtle): void {
       return
     }
     playback?.stop()
-    playback = playDrawing(canvas, turtle.strokes, () => Number.POSITIVE_INFINITY, turtle)
+    if (display.used) paintDisplay(canvas, display)
+    else playback = playDrawing(canvas, turtle.strokes, () => Number.POSITIVE_INFINITY, turtle)
     const view = opened.glance()
     renderScopes(panes.variables, view.scopes)
     renderStack(panes.stack, view.stack)
@@ -429,7 +438,9 @@ window.addEventListener('keydown', (event) => {
   const target = event.target
   if (target instanceof HTMLElement && target.closest('.cm-editor, input, textarea')) return
   event.preventDefault()
-  keyQueue.push({ type: 'key', key: keyName(event) })
+  const key = keyName(event)
+  liveInput.press(key)
+  keyQueue.push({ type: 'key', key })
 })
 
 window.addEventListener('keyup', (event) => {
@@ -437,7 +448,18 @@ window.addEventListener('keyup', (event) => {
   const target = event.target
   if (target instanceof HTMLElement && target.closest('.cm-editor, input, textarea')) return
   event.preventDefault()
-  keyQueue.push({ type: 'key_up', key: keyName(event) })
+  const key = keyName(event)
+  liveInput.release(key)
+  keyQueue.push({ type: 'key_up', key })
+})
+
+canvas.addEventListener('mousemove', (event) => {
+  const rect = canvas.getBoundingClientRect()
+  liveInput.x = event.clientX - rect.left
+  liveInput.y = event.clientY - rect.top
+})
+canvas.addEventListener('mousedown', () => {
+  liveInput.click = true
 })
 
 function halt(label: string): void {
@@ -470,10 +492,11 @@ function arm(): boolean {
   const stats: ExecutionStats = { steps: 0, maxCallDepth: 0 }
   frames = []
   traceTruncated = false
+  display = new Display()
   const commands = turtle.builtins()
   const opened = openVm(editor.getCode(), {
     builtins: commands,
-    modules: { turtle: commands },
+    modules: { turtle: commands, draw: display.module(), input: liveInput.module() },
     stats,
     seed,
     optimize: passes(),

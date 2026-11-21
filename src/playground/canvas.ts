@@ -1,3 +1,4 @@
+import type { Display } from '../draw.ts'
 import type { Stroke } from '../turtle.ts'
 
 /** Stop an in-progress animation. */
@@ -103,6 +104,52 @@ export function playDrawing(
     // Canvas angles grow clockwise from east. Heading 0 is north.
     drawTurtle(ctx, view.x(turtleX), view.y(turtleY), (heading * Math.PI) / 180 - Math.PI / 2)
   }
+}
+
+/** Paint a display list. The update loop does not call this. */
+export function paintDisplay(canvas: HTMLCanvasElement, display: Display): void {
+  const ctx = prepare(canvas)
+  if (!ctx) return
+  const width = canvas.clientWidth
+  const height = canvas.clientHeight
+  ctx.clearRect(0, 0, width, height)
+  ctx.fillStyle = display.background
+  ctx.fillRect(0, 0, width, height)
+  ctx.save()
+  ctx.translate(-display.cameraX, -display.cameraY)
+  for (const op of display.ops) {
+    if (op.kind === 'rect') {
+      ctx.fillStyle = op.color
+      ctx.fillRect(op.x, op.y, op.w, op.h)
+    } else if (op.kind === 'circle') {
+      ctx.fillStyle = op.color
+      ctx.beginPath()
+      ctx.arc(op.x, op.y, op.r, 0, Math.PI * 2)
+      ctx.fill()
+    } else if (op.kind === 'line') {
+      ctx.strokeStyle = op.color
+      ctx.beginPath()
+      ctx.moveTo(op.x1, op.y1)
+      ctx.lineTo(op.x2, op.y2)
+      ctx.stroke()
+    } else if (op.kind === 'text') {
+      ctx.fillStyle = op.color
+      ctx.font = '20px sans-serif'
+      ctx.fillText(op.text, op.x, op.y)
+    } else if (op.art.includes('\n')) {
+      ctx.fillStyle = op.color
+      const rows = op.art.split('\n')
+      rows.forEach((row, y) => {
+        ;[...row].forEach((cell, x) => {
+          if (cell !== '.' && cell !== ' ') ctx.fillRect(op.x + x * 4, op.y + y * 4, 4, 4)
+        })
+      })
+    } else {
+      ctx.font = '32px sans-serif'
+      ctx.fillText(op.art, op.x, op.y + 32)
+    }
+  }
+  ctx.restore()
 }
 
 function prepare(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {

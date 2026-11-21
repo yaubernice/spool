@@ -184,7 +184,21 @@ Runtime guards: a step limit and a call-depth limit, so an infinite loop or a ru
 
 ## Where this is going
 
-`use` and the 60Hz clock are in the language. The `draw` and `input` commands are not: a host can register those names, but this phase does not give them a body. Still ahead: entities and collision rules, tasks that `wait`, audio, and rewind. The playground can already show bytecode and scrub a recorded trace of a drawing. Those stay. A measured benchmark table and a demo GIF belong to a later phase.
+`use`, the 60Hz clock, `draw`, and `input` are in the language. `draw` records shapes. The page paints them on the animation frame, after the update. Still ahead: entities and collision rules, tasks that `wait`, audio, and rewind. The playground can already show bytecode and scrub a recorded trace of a drawing. Those stay. A measured benchmark table and a demo GIF belong to a later phase.
+
+### draw and input
+
+```
+use draw
+use input
+on tick(dt) {
+  draw.background("#123456")
+  draw.rect(1px, 2px, 40px, 8px, "white")
+  if input.key("space") { draw.circle(input.mouse().x, input.mouse().y, 4px, "red") }
+}
+```
+
+`rect`, `circle`, `line`, and `text` take coordinates in pixels. A plain number is also fine. `sprite` draws an emoji, or a tiny picture when the string has a newline (`.` and space are empty). `camera` shifts the picture. `input.key` is true while the key is held, `input.mouse` is a px vec, and `input.click` is true for the frame the button goes down. The origin is the top left, and y grows downward.
 
 ## Playground
 
