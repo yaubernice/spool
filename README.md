@@ -1,6 +1,6 @@
 # Spool
 
-Spool is a small programming language for games, running in the browser. The name is a film spool: a length of time you can wind back. This phase is the language core. A game loop, entities, coroutines, and rewind come later. The turtle is still here as ordinary commands, until it moves into a module.
+Spool is a small programming language for games, running in the browser. The name is a film spool: a length of time you can wind back. A program can draw, listen, keep entities, wait on a clock, and rewind. The turtle is one module.
 
 The implementation is a hand-written **lexer**, **recursive descent parser**, **tree-walking interpreter**, and **stack VM** in TypeScript. No parsing libraries. Tests run the same programs on both backends.
 
@@ -71,9 +71,18 @@ turtle.forward(40)
 turtle.turn(90)
 ```
 
-`use name` binds a module the host registered under that name. A call is `turtle.forward(40)`. The interpreter never hears about a canvas or the page. It only sees the functions the host handed it. `use` of a name the host did not register is an error. `draw` and `input` are the same kind of name; their commands come later.
+`use name` binds a module the host registered under that name. A call is `turtle.forward(40)`. The interpreter never hears about a canvas, the DOM, or Web Audio. It only sees the functions the host handed it. `use` of a name the host did not register is an error. Assigning to a module is an error.
 
-The playground also keeps the turtle commands as bare names, so an older program can still say `forward 40` without `use turtle`.
+The playground registers `turtle`, `draw`, `input`, and `audio`. It also keeps the turtle commands as bare names, so an older program can still say `forward 40` without `use turtle`.
+
+| Module | Calls |
+|--------|--------|
+| `turtle` | `forward` `back` `turn` `penup` `pendown` `color` `width` `goto` `print` |
+| `draw` | `background` `camera` `rect` `circle` `line` `text` `sprite` |
+| `input` | `key` `mouse` `click` |
+| `audio` | `beep` `tone` `play` |
+
+`draw` records shapes. The page paints them after the update. Coordinates are numbers or `px`. The origin is the top left, and y grows downward. `sprite` draws an emoji, or pixel art when the string contains a newline (`.` and space are empty). `input.key` is true while the key is held. `input.mouse` is a px vec. `input.click` is true for the frame the button goes down. `audio` records a cue. The page plays it. `beep(freq, duration)` is a square wave. `tone` takes `sine`, `square`, `triangle`, or `saw`. `play` is `hit`, `score`, or `boom`. Frequency is a plain number above 0. Duration is a time in seconds.
 
 ### Events
 
@@ -134,6 +143,68 @@ repeat 36 {
 }
 ```
 
+### Grammar
+
+A program is a list of statements. Comments start with `#` and run to the end of the line. Strings use double quotes, with `\"` `\\` `\n` `\t` `\{` and `\}`. A number may wear `px` or `s`, as in `120px` or `80px/s`. There is no scientific notation and no trailing dot.
+
+```
+program     = { statement } ;
+statement   = let | assign | if | while | repeat | for
+            | record | use | on | entity | despawn
+            | each | when | task | wait | every | after
+            | fn | return | command | expression ;
+let         = "let" name "=" expression ;
+assign      = target "=" expression ;
+if          = "if" expression block [ "else" block ] ;
+while       = "while" expression block ;
+repeat      = "repeat" expression block ;
+for         = "for" name "in" expression [ ".." expression ] block ;
+record      = "record" name "{" [ name { "," name } ] "}" ;
+use         = "use" name ;
+on          = "on" "start" block
+            | "on" "tick" "(" name ")" block
+            | "on" ( "key" | "key_up" ) string block ;
+entity      = "entity" name "{" [ name { "," name } ] "}" ;
+despawn     = "despawn" expression ;
+each        = "each" name "in" expression "where" expression block ;
+when        = "when" name "in" expression "touches" name "in" expression block ;
+task        = "task" name block ;
+wait        = "wait" expression | "wait" "until" expression ;
+every       = "every" expression block ;
+after       = "after" expression block ;
+fn          = "fn" name "(" [ name { "," name } ] ")" block ;
+return      = "return" [ expression ] ;
+block       = "{" { statement } "}" ;
+fields      = "{" [ name ":" expression { "," name ":" expression } ] "}" ;
+
+expression  = pipe ;
+pipe        = or { "|>" or } ;
+or          = and { "or" and } ;
+and         = not { "and" not } ;
+not         = "not" not | comparison ;
+comparison  = sum { ( "==" | "!=" | "<" | ">" | "<=" | ">=" ) sum } ;
+sum         = product { ( "+" | "-" ) product } ;
+product     = unary { ( "*" | "/" | "%" ) unary } ;
+unary       = "-" unary | postfix ;
+postfix     = primary { "(" [ expression { "," expression } ] ")"
+                      | "[" expression "]"
+                      | "." name } ;
+primary     = number | string | name | "true" | "false"
+            | "[" [ expression { "," expression } ] "]"
+            | "{" [ field { "," field } ] "}"
+            | "fn" "(" [ name { "," name } ] ")" block
+            | "spawn" expression "at" "(" expression "," expression ")" fields
+            | "match" expression "{" { pattern "=>" expression } "}"
+            | "(" expression ")" ;
+field       = ( name | string ) ":" expression ;
+pattern     = literal | name | "_" | "vec" "(" pattern "," pattern ")"
+            | name "{" [ name ":" pattern { "," name ":" pattern } ] "}" ;
+```
+
+`|>` binds most loosely, then `or`, `and`, `not`, comparisons, `+` `-`, `*` `/` `%`, then unary minus. `not 1 == 2` is `not (1 == 2)`. `1 + 2 |> inc` is `inc(3)`. A `{` after a name is a record or a map when a field follows, and an empty `Name { }` is a record when a block is not required. After `if`, `while`, `for`, and `repeat`, `{ }` is the body.
+
+`forward`, `back`, `turn`, `penup`, `pendown`, `color`, `width`, `goto`, and `print` may omit parentheses when they are a statement: `forward 40`, `goto 10 20`. A call with parentheses is the same thing. Any other function, and any module field, needs parentheses.
+
 ## Architecture
 
 ```mermaid
@@ -145,9 +216,12 @@ flowchart TD
   ast --> compiler[Bytecode compiler]
   compiler --> optimizer[Constant folding and dead-code elimination]
   optimizer --> vm[Stack VM]
-  walker --> host[Turtle, math, and collections]
+  walker --> world[Entities, tasks, and the 60Hz clock]
+  vm --> world
+  walker --> host[Host modules: turtle, draw, input, audio]
   vm --> host
-  host --> playground[Playground]
+  world --> page[Playground or an exported HTML file]
+  host --> page
 ```
 
 The playground runs the VM. The tree-walker is still the reference implementation, and the tests run every behavior on both.
@@ -168,7 +242,14 @@ The playground runs the VM. The tree-walker is still the reference implementatio
 | `src/rng.ts` | Seeded `random`, mulberry32 |
 | `src/benchmark.ts` | The three programs the bench panel times |
 | `src/turtle.ts` | Turtle state and drawing commands |
-| `src/audio.ts` | `audio` cues. The page plays them; the timeline does not |
+| `src/audio.ts` | `audio` cues. The page plays them; rewind stays silent |
+| `src/world.ts` | Entities and collision. Shared by both backends |
+| `src/clock.ts` | `dt` is `1/60 s`. Turns a wait into a tick count |
+| `src/draw.ts` | Display list. The page paints it later |
+| `src/input.ts` | Keys, the pointer, and clicks the page writes |
+| `src/image.ts` | JSON image of the VM, including tasks and entities |
+| `src/player.ts` | The runtime inside an exported HTML file |
+| `src/export.ts` | Wraps a program and that runtime in one page |
 | `src/playground/` | Editor, canvas, inspector, debugger, timeline, and the bench worker |
 
 Runtime guards: a step limit and a call-depth limit, so an infinite loop or a runaway recursion fails safely instead of freezing the page.
@@ -183,11 +264,15 @@ Runtime guards: a step limit and a call-depth limit, so an infinite loop or a ru
 
 **A running game can rewind for real.** Every four frames the page stores the VM, the entities, the input log, and the random-number state in a buffer of 240 snapshots. The timeline and the hold-R key restore that snapshot, so play continues from there and the same inputs produce the same game. When the buffer is full, earlier frames are dropped and the timeline says so. Audio stays quiet while you rewind.
 
+**The VM keeps an explicit frame, because a snapshot has to be data.** A task that reaches `wait` must resume on a later tick. The tree-walker can leave a JavaScript generator parked. That generator is not something you can write to JSON. The VM stores a call as a frame: which chunk, the instruction pointer, and the environment. `wait` moves that frame into a list with the tick that should wake it. The image stores chunk paths and numbers, then `restore` builds the frames again. The trade-off is a longer VM. What you get is a waiting task that rewind can put back to sleep, instead of a stack that only exists inside one JavaScript call.
+
+**Determinism is what makes that restore a continuation.** `dt` is always `1/60 s`, never the time the last paint happened to take. `random` is a counter that started from the seed, and the image stores the counter. Keys are a log the page appends, not a read of the keyboard at some later wall-clock moment. Restoring the machine and replaying the same keys from that point plays the same game. The statement timeline cannot do this. It only keeps the pauses it already recorded and redraws turtle strokes up to one of them. The cost of the stronger version is that a program with no seed, or a host function that reads the real clock, would not come back the same way. The playground always passes a seed. The exported page does too, from `?seed=`, and otherwise uses 1.
+
 **The seed lives in the link.** The hash is `#s=<seed>&<program>`. An older link that is only the program still loads, with seed 1.
 
 ## Where this is going
 
-`use`, the 60Hz clock, `draw`, `input`, entities, tasks, and `audio` are in the language. `draw` records shapes. The page paints them on the animation frame, after the update. A task waits on the game clock, not the wall clock. `audio` records cues. The page plays them, and rewind stays silent. A running game can restore an earlier frame. Five games in the gallery are written in Spool. The Bench tab times the tree-walker against the VM, in a worker, and the status bar shows the last frame's update time and how many entities are alive. The Bytecode tab shows the program before and after constant folding. A published table of those times, a language reference, and a demo GIF are still ahead.
+`use`, the 60Hz clock, `draw`, `input`, entities, tasks, and `audio` are in the language. `draw` records shapes. The page paints them on the animation frame, after the update. A task waits on the game clock, not the wall clock. `audio` records cues. The page plays them, and rewind stays silent. A running game can restore an earlier frame. Five games in the gallery are written in Spool. The Bench tab times the tree-walker against the VM, in a worker, and the status bar shows the last frame's update time and how many entities are alive. The Bytecode tab shows the program before and after constant folding. **Export** downloads the open program as one HTML file that plays with the same VM. Deploying the static build, and a recorded GIF of rewind, are still ahead.
 
 ### Gallery
 
@@ -204,6 +289,14 @@ Click a game name to load it and see the source. The stage takes the keys. **R**
 ### Benchmarks
 
 Open the Bench tab and press **Run benchmarks**. A worker times `fib(27)`, a nested loop of `1 + 2`, and 1,000 entities updated for 20 ticks. Each cell is the median of several runs. The speedup is the tree-walk time divided by the VM time. The same pane says how many instructions constant folding removes from `1 + 2 * 3`. While a game is playing, the status bar shows `frame 1.2 ms` for the last update and `3 entities` for how many are alive.
+
+These medians were measured on this machine on 21 November 2026, with the same warmup and the same sample counts the Bench tab uses. Five samples for `fib(27)` and the nested loop, three for the entities. Each sample starts from the source, so the VM columns include compiling, and the optimized column includes both passes. `fib(27)` is about 9× faster on the VM. The nested loop is not: looking names up in a linked scope costs as much as the arithmetic, and folding `1 + 2` does not pay for itself. Updating 1,000 entities does. The tree-walker pauses on every statement, and that shows up as about 50×.
+
+| Program | Tree-walk | VM | VM + passes | VM speedup | Optimized speedup |
+| --- | --- | --- | --- | --- | --- |
+| fib(27) | 6074.3 ms | 657.6 ms | 695.4 ms | 9.2× | 8.7× |
+| nested loop | 84.3 ms | 89.2 ms | 116.2 ms | 0.9× | 0.7× |
+| 1000 entities | 19451.6 ms | 383.7 ms | 384.1 ms | 50.7× | 50.6× |
 
 ### draw and input
 
@@ -269,13 +362,14 @@ While a game is playing, the timeline is a ring of machine snapshots, one every 
 `npm run dev` opens the studio.
 
 - **Run**, or Cmd/Ctrl-Enter, draws the program on the VM. The turtle walks each line. Drag **Speed** while it is drawing; the right end of the slider finishes the picture at once.
+- **Export** downloads the open program as `spool-game.html`. That file contains the program and the VM. Open it in a browser and the game plays. The first export in a session builds the player, so it takes a moment. Add `?seed=2` to the file's address to change `random`.
 - **Step** pauses before the next statement. The first step highlights the line that is about to run, and the matching bytecode instruction. **Continue** runs until **Pause** or the end, without freezing the page. **Stop** leaves the debugger.
 - **Back** and **Forward**, or Alt+Left and Alt+Right, move along the recorded trace. The canvas, the highlighted line, **Variables**, and **Call stack** follow the slider. During a game, the same slider and **R** restore the machine.
 - While paused, **Variables** shows the scope chain and **Call stack** shows the functions that are running.
 - The inspector beside the canvas has **Output**, **Tokens**, **AST**, **Bytecode**, and **Bench**. Tokens refresh as you type. Hover a tree node to mark its source; move the cursor and the matching node lights up. A parse error keeps the last good tokens and tree and shows a banner.
 - **Bytecode** lists the program before and after the optimizer. **Constant folding** and **Dead-code elimination** can each be switched off. The counts above the listing are the instruction totals, including nested functions.
 - **Print** and errors share the console under the editor. Every error has a code (`E0203`), the source line, a caret, and a suggestion when a name is one or two edits from a variable you defined.
-- The status bar shows the cursor, token count, AST node count, run time, steps, and the deepest call.
+- The status bar shows the cursor, token count, AST node count, run time, the last frame's update time, how many entities are alive, the step count, and the deepest call.
 - **Light** / **Dark** switches the theme. The paper under the turtle stays light in both, so the default pen stays visible. Drag the splitters to resize the editor and the inspector. Below 800px the canvas and the inspector sit above the editor.
 - **Pong**, **Snake**, **Breakout**, **Asteroids**, and **Flappy** are games. Click the name to load the source, then play on the stage. **Spiral**, **Snowflake**, **Tree**, **Flower**, **Koch**, **Sierpinski**, and **Rainbow** draw. **Primes**, **Sort**, **Fibonacci**, and **FizzBuzz** print, and they use arrays, `for`, string joining, or functions as values.
 - **Seed** feeds `random`. The program and the seed are stored in the URL hash, so the address is a shareable link.
@@ -293,9 +387,7 @@ While a game is playing, the timeline is a ring of machine snapshots, one every 
 
 ## Demo
 
-A short GIF of the studio belongs here once it is recorded:
-
-A demo GIF of rewind belongs here once it is recorded. It is not in the repo yet.
+A GIF of rewind belongs here once it is recorded. It is not in the repo yet. The recording should show a game running, then **R** or the timeline restoring an earlier frame and play continuing from that machine.
 
 ## Build phases
 

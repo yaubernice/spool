@@ -1,5 +1,6 @@
 import './style.css'
 import { foldCounts } from './benchmark.ts'
+import { gamePage } from './export.ts'
 import { disassemble } from './bytecode.ts'
 import type { KeyEvent } from './clock.ts'
 import { compile } from './compile.ts'
@@ -62,6 +63,7 @@ app.innerHTML = `
       <button id="pause" type="button">Pause</button>
       <button id="continue" type="button">Continue</button>
       <button id="stop" type="button">Stop</button>
+      <button id="export" type="button" title="Download this program as one HTML file">Export</button>
       <label class="speed">
         Speed
         <input id="speed" type="range" min="1" max="8" value="6" />
@@ -152,6 +154,7 @@ const traceNote = document.querySelector<HTMLSpanElement>('#trace-note')!
 const foldBox = document.querySelector<HTMLInputElement>('#pass-fold')!
 const dceBox = document.querySelector<HTMLInputElement>('#pass-dce')!
 const bytecodeView = document.querySelector<HTMLElement>('#bytecode-view')!
+const exportButton = document.querySelector<HTMLButtonElement>('#export')!
 const benchButton = document.querySelector<HTMLButtonElement>('#bench-run')!
 const benchFold = document.querySelector<HTMLElement>('#bench-fold')!
 const benchStatus = document.querySelector<HTMLElement>('#bench-status')!
@@ -288,6 +291,7 @@ seedInput.addEventListener('change', () => {
 foldBox.addEventListener('change', onPasses)
 dceBox.addEventListener('change', onPasses)
 benchButton.addEventListener('click', runBenchmarks)
+exportButton.addEventListener('click', () => void exportGame())
 themeButton.addEventListener('click', toggleTheme)
 window.addEventListener('keydown', (event) => {
   if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
@@ -942,6 +946,29 @@ function stepForward(): void {
     return
   }
   if (session || frames.length === 0) step()
+}
+
+async function exportGame(): Promise<void> {
+  exportButton.disabled = true
+  runState.textContent = 'Building the player…'
+  try {
+    const response = await fetch('/player-bundle.js')
+    if (!response.ok) throw new Error('Could not build the player')
+    const runtime = await response.text()
+    const page = gamePage(editor.getCode(), runtime)
+    const url = URL.createObjectURL(new Blob([page], { type: 'text/html' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'spool-game.html'
+    link.click()
+    URL.revokeObjectURL(url)
+    runState.textContent = 'Exported spool-game.html'
+  } catch (error) {
+    fail(error)
+    runState.textContent = 'Export failed.'
+  } finally {
+    exportButton.disabled = false
+  }
 }
 
 function runBenchmarks(): void {
