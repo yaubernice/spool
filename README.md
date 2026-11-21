@@ -1,5 +1,15 @@
 # Spool
 
+Game programming language with rewind and a live browser studio.
+
+![Studio](docs/studio.png)
+
+```bash
+npm install
+npm test
+npm run dev
+```
+
 Spool is a small programming language for games, running in the browser. The name is a film spool: a length of time you can wind back. A program can draw, listen, keep entities, wait on a clock, and rewind. The turtle is one module.
 
 - `+=`, `-=`, and `*=` update a name, a field, or an index.
