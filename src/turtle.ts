@@ -1,6 +1,9 @@
 import type { SourceLocation } from './ast.ts'
 import { RuntimeError } from './errors.ts'
-import { interpret, type HostFunction, type Value } from './interpreter.ts'
+import { interpret, textValue, type HostFunction, type InterpretOptions, type Value } from './interpreter.ts'
+
+/** Anything that can run a program the way `interpret` does. */
+export type ProgramRunner = (source: string, options?: InterpretOptions) => Value
 
 /**
  * Turtle: a pen that remembers position, heading, color, and width.
@@ -31,6 +34,8 @@ export interface TurtleResult {
   x: number
   y: number
   heading: number
+  steps: number
+  maxCallDepth: number
 }
 
 export class Turtle {
@@ -71,7 +76,7 @@ export class Turtle {
         this.one(args, 'color', at)
         const value = args[0]
         if (typeof value !== 'string') {
-          throw new RuntimeError('color expects a string, like "red"', at.line, at.column)
+          throw new RuntimeError('E0301', 'color expects a string, like "red"', at.line, at.column)
         }
         this.color = value
         return null
@@ -79,7 +84,7 @@ export class Turtle {
       width: (args, at) => {
         const width = this.number(args, 'width', at)
         if (width <= 0) {
-          throw new RuntimeError('width must be greater than 0', at.line, at.column)
+          throw new RuntimeError('E0302', 'width must be greater than 0', at.line, at.column)
         }
         this.width = width
         return null
@@ -89,7 +94,7 @@ export class Turtle {
         const x = args[0]
         const y = args[1]
         if (typeof x !== 'number' || typeof y !== 'number') {
-          throw new RuntimeError('goto expects two numbers', at.line, at.column)
+          throw new RuntimeError('E0303', 'goto expects two numbers', at.line, at.column)
         }
         this.lineTo(x, y)
         return null
@@ -133,34 +138,33 @@ export class Turtle {
   private number(args: Value[], name: string, at: SourceLocation): number {
     this.one(args, name, at)
     if (typeof args[0] !== 'number') {
-      throw new RuntimeError(`${name} expects a number`, at.line, at.column)
+      throw new RuntimeError('E0304', `${name} expects a number`, at.line, at.column)
     }
     return args[0]
   }
 
   private arity(name: string, expected: number, got: number, at: SourceLocation): never {
     const noun = expected === 1 ? 'argument' : 'arguments'
-    throw new RuntimeError(`${name} expects ${expected} ${noun}, got ${got}`, at.line, at.column)
+    throw new RuntimeError('E0305', `${name} expects ${expected} ${noun}, got ${got}`, at.line, at.column)
   }
 }
 
 /** Run a program with the turtle commands and collect what it drew. */
-export function trace(source: string): TurtleResult {
+export function trace(source: string, run: ProgramRunner = interpret): TurtleResult {
   const turtle = new Turtle()
-  interpret(source, { builtins: turtle.builtins() })
+  const stats = { steps: 0, maxCallDepth: 0 }
+  run(source, { builtins: turtle.builtins(), stats })
   return {
     strokes: turtle.strokes,
     prints: turtle.prints,
     x: turtle.x,
     y: turtle.y,
     heading: turtle.heading,
+    steps: stats.steps,
+    maxCallDepth: stats.maxCallDepth,
   }
 }
 
-function showValue(value: Value): string {
-  if (value === null) return 'nothing'
-  if (typeof value === 'string') return value
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  if (value.type === 'function') return `function ${value.name}`
-  return `built-in ${value.name}`
+function showValue(value: Value, seen: Set<object> = new Set()): string {
+  return textValue(value, seen)
 }

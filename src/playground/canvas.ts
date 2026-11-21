@@ -34,8 +34,10 @@ export function playDrawing(
     else onDone?.()
   }
 
-  paint(0)
-  frame = requestAnimationFrame(tick)
+  const first = distanceAt(performance.now())
+  paint(first)
+  if (first < total) frame = requestAnimationFrame(tick)
+  else onDone?.()
 
   return {
     stop() {
@@ -59,7 +61,8 @@ export function playDrawing(
     const view = fit(strokes, width, height)
 
     ctx.clearRect(0, 0, width, height)
-    ctx.fillStyle = '#fffaf3'
+    const background = getComputedStyle(canvas).backgroundColor
+    ctx.fillStyle = background && background !== 'rgba(0, 0, 0, 0)' ? background : '#1e1e1e'
     ctx.fillRect(0, 0, width, height)
 
     let remaining = traveled

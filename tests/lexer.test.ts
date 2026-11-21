@@ -92,23 +92,29 @@ describe('operators', () => {
 
 describe('keywords', () => {
   it('recognizes reserved words', () => {
-    expect(types('let if else while repeat fn return and or not')).toEqual([
+    expect(types('let if else while repeat for in fn return and or not true false record match')).toEqual([
       'LET',
       'IF',
       'ELSE',
       'WHILE',
       'REPEAT',
+      'FOR',
+      'IN',
       'FN',
       'RETURN',
       'AND',
       'OR',
       'NOT',
+      'TRUE',
+      'FALSE',
+      'RECORD',
+      'MATCH',
       'EOF',
     ])
   })
 
   it('does not treat a longer name as a keyword', () => {
-    expect(types('letter note')).toEqual(['IDENTIFIER', 'IDENTIFIER', 'EOF'])
+    expect(types('letter note trueish')).toEqual(['IDENTIFIER', 'IDENTIFIER', 'IDENTIFIER', 'EOF'])
   })
 })
 

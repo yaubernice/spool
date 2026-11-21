@@ -3,7 +3,7 @@ export interface Example {
   code: string
 }
 
-/** Four short programs. Each one is real language, not a special drawing mode. */
+/** Gallery programs. Each one is real language, not a special drawing mode. */
 export const examples: Example[] = [
   {
     name: 'Spiral',
@@ -72,6 +72,129 @@ width 1.5
 repeat 36 {
   forward 140
   turn 170
+}
+`,
+  },
+  {
+    name: 'Koch',
+    code: `fn koch(n, len) {
+  if n == 0 {
+    forward len
+  } else {
+    koch(n - 1, len / 3)
+    turn -60
+    koch(n - 1, len / 3)
+    turn 120
+    koch(n - 1, len / 3)
+    turn -60
+    koch(n - 1, len / 3)
+  }
+}
+color "#9fd7ff"
+width 1.4
+repeat 3 {
+  koch(4, 270)
+  turn 120
+}
+`,
+  },
+  {
+    name: 'Sierpinski',
+    code: `fn sierpinski(n, len) {
+  if n == 0 {
+    repeat 3 {
+      forward len
+      turn 120
+    }
+  } else {
+    sierpinski(n - 1, len / 2)
+    forward len / 2
+    sierpinski(n - 1, len / 2)
+    back len / 2
+    turn 60
+    forward len / 2
+    turn -60
+    sierpinski(n - 1, len / 2)
+    turn 60
+    back len / 2
+    turn -60
+  }
+}
+color "#e0b15a"
+sierpinski(5, 260)
+`,
+  },
+  {
+    name: 'Rainbow',
+    code: `let hue = 0
+repeat 90 {
+  color hsl(hue, 78, 58)
+  width 2
+  forward hue * 0.45 + 8
+  turn 47
+  hue = hue + 4
+}
+`,
+  },
+  {
+    name: 'Primes',
+    code: `fn isPrime(n) {
+  if n < 2 { return false }
+  for i in 2..n {
+    if n % i == 0 { return false }
+  }
+  return true
+}
+for n in 2..30 {
+  if isPrime(n) { print n }
+}
+`,
+  },
+  {
+    name: 'Sort',
+    code: `let a = [5, 1, 4, 2, 8]
+let n = len(a)
+for i in 0..n {
+  for j in 0..(n - 1) {
+    if a[j] > a[j + 1] {
+      let tmp = a[j]
+      a[j] = a[j + 1]
+      a[j + 1] = tmp
+    }
+  }
+}
+for i in 0..n {
+  print a[i]
+}
+`,
+  },
+  {
+    name: 'Fibonacci',
+    code: `fn fib(n) {
+  if n < 2 { return n }
+  return fib(n - 1) + fib(n - 2)
+}
+for i in 0..12 {
+  print fib(i)
+}
+`,
+  },
+  {
+    name: 'FizzBuzz',
+    code: `for i in 1..21 {
+  if i % 15 == 0 {
+    print "Fizz" + "Buzz"
+  } else {
+    if i % 3 == 0 {
+      print "Fizz"
+    } else {
+      if i % 5 == 0 {
+        print "Buzz"
+      } else {
+        print i
+      }
+    }
+  }
 }
 `,
   },

@@ -15,7 +15,23 @@ function shape(expr: Expr): unknown {
     case 'BinaryExpr':
       return [shape(expr.left), expr.operator, shape(expr.right)]
     case 'CallExpr':
-      return [expr.callee, expr.args.map(shape)]
+      return [shape(expr.callee), expr.args.map(shape)]
+    case 'ArrayExpr':
+      return ['array', expr.elements.map(shape)]
+    case 'IndexExpr':
+      return ['index', shape(expr.object), shape(expr.index)]
+    case 'FnExpr':
+      return ['fn', expr.params.map((param) => param.name)]
+    case 'FieldExpr':
+      return ['field', shape(expr.object), expr.name]
+    case 'MapExpr':
+      return ['map', expr.entries.map((entry) => [entry.key, shape(entry.value)])]
+    case 'RecordExpr':
+      return ['record', expr.name, expr.fields.map((field) => [field.name, shape(field.value)])]
+    case 'InterpExpr':
+      return ['interp', expr.parts.map((part) => (part.type === 'text' ? part.text : shape(part.expr)))]
+    case 'MatchExpr':
+      return ['match', shape(expr.scrutinee), expr.arms.length]
   }
 }
 
@@ -25,6 +41,8 @@ describe('literals and variables', () => {
     expect(shape(parseExpression('3.14'))).toBe(3.14)
     expect(shape(parseExpression('"red"'))).toBe('red')
     expect(shape(parseExpression('size'))).toBe('size')
+    expect(shape(parseExpression('true'))).toBe(true)
+    expect(shape(parseExpression('false'))).toBe(false)
   })
 
   it('keeps the decoded string value', () => {
@@ -238,6 +256,15 @@ if size == 0 {
   it('points a later statement at its own line', () => {
     const program = parse('# comment\nlet size = 1')
     expect(program.body[0]).toMatchObject({ type: 'LetStmt', line: 2, column: 1 })
+  })
+
+  it('parses assignment separately from comparison', () => {
+    const program = parse('n = n + 1')
+    const statement = program.body[0]
+    if (statement.type !== 'AssignStmt') throw new Error('expected assignment')
+    expect(statement.name).toBe('n')
+    expect(shape(statement.value)).toEqual(['n', '+', 1])
+    expect(shape(parseExpression('n == n + 1'))).toEqual(['n', '==', ['n', '+', 1]])
   })
 
   it('rejects a let with no name or no equals', () => {

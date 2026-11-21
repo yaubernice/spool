@@ -1,8 +1,16 @@
 import { forceLinting, lintGutter, linter, type Diagnostic } from '@codemirror/lint'
-import { EditorState } from '@codemirror/state'
-import { EditorView, keymap } from '@codemirror/view'
+import { Compartment, EditorState, StateEffect, StateField, type Range } from '@codemirror/state'
+import { oneDark } from '@codemirror/theme-one-dark'
+import { Decoration, EditorView, keymap, type DecorationSet } from '@codemirror/view'
 import { basicSetup } from 'codemirror'
 import type { SourceError } from '../errors.ts'
+
+export interface SourceSpan {
+  line: number
+  column: number
+  endLine: number
+  endColumn: number
+}
 
 export interface PlaygroundEditor {
   getCode: () => string
@@ -10,7 +18,31 @@ export interface PlaygroundEditor {
   /** Underline one error. Pass null to clear the marks. */
   setError: (error: SourceError | null) => void
   focus: () => void
+  setTheme: (dark: boolean) => void
+  /** Yellow wash over a source range. Pass null to clear it. */
+  highlightRange: (span: SourceSpan | null) => void
+  /** Blue bar on the statement the debugger is about to run. */
+  highlightLine: (line: number | null) => void
 }
+
+interface Marks {
+  range: SourceSpan | null
+  line: number | null
+}
+
+const setMarks = StateEffect.define<Marks>()
+
+const markField = StateField.define<Marks>({
+  create: () => ({ range: null, line: null }),
+  update(value, transaction) {
+    for (const effect of transaction.effects) {
+      if (effect.is(setMarks)) return effect.value
+    }
+    return value
+  },
+  provide: (field) =>
+    EditorView.decorations.compute([field], (state) => marksFor(state.doc.toString(), state.field(field))),
+})
 
 /**
  * A CodeMirror editor. Cmd/Ctrl+Enter runs the program.
@@ -21,8 +53,11 @@ export function createEditor(
   code: string,
   onChange: (code: string) => void,
   onRun: () => void,
+  onCursor: (line: number, column: number) => void,
 ): PlaygroundEditor {
   let marked: SourceError | null = null
+  let marks: Marks = { range: null, line: null }
+  const theme = new Compartment()
 
   const view = new EditorView({
     parent,
@@ -31,21 +66,34 @@ export function createEditor(
       extensions: [
         basicSetup,
         keymap.of([{ key: 'Mod-Enter', run: () => (onRun(), true) }]),
+        theme.of(document.documentElement.dataset.theme === 'light' ? [] : oneDark),
         EditorView.theme({
-          '&': { height: '100%', fontSize: '14px' },
-          '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' },
+          '&': { height: '100%', fontSize: '13px' },
+          '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' },
           '.cm-content': { padding: '8px 0' },
+          '.cm-debug-line': { backgroundColor: 'rgba(80, 140, 255, 0.18)' },
+          '.cm-source-hit': { backgroundColor: 'rgba(240, 180, 40, 0.35)' },
         }),
+        markField,
         lintGutter(),
         linter((editor) => (marked ? [mark(editor.state.doc.toString(), marked)] : []), {
           delay: 150,
         }),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) onChange(update.state.doc.toString())
+          if (update.selectionSet || update.docChanged) {
+            const pos = update.state.selection.main.head
+            const line = update.state.doc.lineAt(pos)
+            onCursor(line.number, pos - line.from + 1)
+          }
         }),
       ],
     }),
   })
+
+  const publish = () => {
+    view.dispatch({ effects: setMarks.of(marks) })
+  }
 
   return {
     getCode: () => view.state.doc.toString(),
@@ -58,12 +106,48 @@ export function createEditor(
       forceLinting(view)
     },
     focus: () => view.focus(),
+    setTheme(dark) {
+      view.dispatch({ effects: theme.reconfigure(dark ? oneDark : []) })
+    },
+    highlightRange(span) {
+      marks = { ...marks, range: span }
+      publish()
+    },
+    highlightLine(line) {
+      marks = { ...marks, line }
+      publish()
+    },
   }
+}
+
+function marksFor(source: string, marks: Marks): DecorationSet {
+  const placed: Range<Decoration>[] = []
+  if (marks.line !== null && marks.line >= 1) {
+    const line = lineRange(source, marks.line)
+    placed.push(Decoration.line({ class: 'cm-debug-line' }).range(line.from))
+  }
+  if (marks.range) {
+    const from = indexAt(source, marks.range.line, marks.range.column)
+    const to = indexAt(source, marks.range.endLine, marks.range.endColumn)
+    if (to > from) placed.push(Decoration.mark({ class: 'cm-source-hit' }).range(from, to))
+  }
+  placed.sort((a, b) => a.from - b.from)
+  return Decoration.set(placed, true)
+}
+
+function lineRange(source: string, line: number): { from: number } {
+  let current = 1
+  let index = 0
+  while (index < source.length && current < line) {
+    if (source[index] === '\n') current++
+    index++
+  }
+  return { from: index }
 }
 
 function mark(source: string, error: SourceError): Diagnostic {
   const { from, to } = span(source, error.line, error.column)
-  return { from, to, severity: 'error', message: error.detail }
+  return { from, to, severity: 'error', message: `${error.code}: ${error.detail}` }
 }
 
 /** 1-based line and column → offset. Stays on that line. */

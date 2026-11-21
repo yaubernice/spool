@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { RuntimeError } from '../src/errors.ts'
-import { interpret } from '../src/interpreter.ts'
+import { debug, interpret as interpretTree } from '../src/interpreter.ts'
+import { interpretVm } from '../src/vm.ts'
 
+const engines = [
+  ['tree-walker', interpretTree],
+  ['vm', interpretVm],
+] as const
+
+for (const [engine, interpret] of engines) {
+describe(engine, () => {
 describe('expressions, variables, and scopes', () => {
   it('evaluates arithmetic with precedence', () => {
     expect(interpret('1 + 2 * 3')).toBe(7)
@@ -66,6 +74,66 @@ f()`
     } catch (error) {
       expect((error as RuntimeError).message).toContain("'a' is already defined")
       expect((error as RuntimeError).line).toBe(2)
+    }
+  })
+})
+
+describe('assignment, booleans, and math', () => {
+  it('updates an existing name, including from inside a loop', () => {
+    expect(interpret('let n = 1\nn = n + 1\nn')).toBe(2)
+    expect(
+      interpret(`let n = 0
+while n < 3 {
+  n = n + 1
+}
+n`),
+    ).toBe(3)
+  })
+
+  it('does not create a name, and does not change a shadowed outer name', () => {
+    expect(() => interpret('n = 1')).toThrow(RuntimeError)
+    expect(
+      interpret(`let n = 1
+if true {
+  let n = 5
+  n = n + 1
+}
+n`),
+    ).toBe(1)
+  })
+
+  it('treats true and false as booleans', () => {
+    expect(interpret('true')).toBe(true)
+    expect(interpret('not false')).toBe(true)
+    expect(interpret('if true { 1 } else { 2 }')).toBe(1)
+  })
+
+  it('runs the math built-ins', () => {
+    expect(interpret('sin(0)')).toBe(0)
+    expect(interpret('cos(0)')).toBe(1)
+    expect(interpret('abs(-3)')).toBe(3)
+    expect(interpret('sqrt(9)')).toBe(3)
+    expect(interpret('min(3, 1, 2)')).toBe(1)
+    expect(interpret('max(1, 4)')).toBe(4)
+    expect(interpret('hsl(120, 80, 50)')).toBe('hsl(120, 80%, 50%)')
+    const sample = interpret('random()')
+    expect(sample).toBeGreaterThanOrEqual(0)
+    expect(sample).toBeLessThan(1)
+  })
+
+  it('suggests a close name and stays quiet for a one-letter typo', () => {
+    try {
+      interpret('let count = 1\ncont')
+      expect.unreachable()
+    } catch (error) {
+      expect((error as RuntimeError).message).toContain("Did you mean 'count'")
+      expect((error as RuntimeError).code).toBe('E0202')
+    }
+    try {
+      interpret('let x = 1\ny')
+      expect.unreachable()
+    } catch (error) {
+      expect((error as RuntimeError).message).not.toContain('Did you mean')
     }
   })
 })
@@ -236,4 +304,36 @@ repeat 36 {
     expect(moves.filter((move) => move === 'turn 90')).toHaveLength(144)
     expect(moves.filter((move) => move === 'turn 10')).toHaveLength(36)
   })
+
+  it('pauses before each statement and records the call', () => {
+    const session = debug('let n = 1\nn = n + 1\nn')
+    const first = session.next()
+    if (first.done) throw new Error('expected a pause')
+    expect(first.value).toMatchObject({ line: 1, steps: 0 })
+    expect(first.value.scopes[0].bindings).toEqual([])
+
+    const second = session.next()
+    if (second.done) throw new Error('expected a pause')
+    expect(second.value.scopes[0].bindings).toEqual([{ name: 'n', value: '1' }])
+
+    const third = session.next()
+    if (third.done) throw new Error('expected a pause')
+    expect(third.value.scopes[0].bindings).toEqual([{ name: 'n', value: '2' }])
+
+    const last = session.next()
+    expect(last.done).toBe(true)
+    if (last.done) expect(last.value).toBe(2)
+
+    const call = debug('fn id(s) {\n  return s\n}\nid(4)')
+    call.next()
+    call.next()
+    const inside = call.next()
+    if (inside.done) throw new Error('expected to be inside id')
+    expect(inside.value.stack[0].name).toBe('id')
+    expect(inside.value.scopes[0].label).toBe('id')
+    expect(inside.value.scopes[0].bindings).toEqual([{ name: 's', value: '4' }])
+    expect(inside.value.maxCallDepth).toBe(1)
+  })
 })
+})
+}

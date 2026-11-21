@@ -40,7 +40,7 @@ describe('AST', () => {
                       type: 'ExprStmt',
                       expression: {
                         type: 'CallExpr',
-                        callee: 'forward',
+                        callee: { type: 'VariableExpr', name: 'forward', ...at(2, 15) },
                         args: [side],
                         ...at(2, 15),
                       },
@@ -50,7 +50,7 @@ describe('AST', () => {
                       type: 'ExprStmt',
                       expression: {
                         type: 'CallExpr',
-                        callee: 'turn',
+                        callee: { type: 'VariableExpr', name: 'turn', ...at(2, 26) },
                         args: [{ type: 'LiteralExpr', value: 90, ...at(2, 31) }],
                         ...at(2, 26),
                       },
@@ -77,7 +77,7 @@ describe('AST', () => {
                 type: 'ExprStmt',
                 expression: {
                   type: 'CallExpr',
-                  callee: 'square',
+                  callee: { type: 'VariableExpr', name: 'square', ...at(5, 3) },
                   args: [{ type: 'LiteralExpr', value: 100, ...at(5, 10) }],
                   ...at(5, 3),
                 },
@@ -87,7 +87,7 @@ describe('AST', () => {
                 type: 'ExprStmt',
                 expression: {
                   type: 'CallExpr',
-                  callee: 'turn',
+                  callee: { type: 'VariableExpr', name: 'turn', ...at(6, 3) },
                   args: [{ type: 'LiteralExpr', value: 10, ...at(6, 8) }],
                   ...at(6, 3),
                 },
@@ -193,7 +193,7 @@ describe('AST', () => {
                 type: 'ExprStmt',
                 expression: {
                   type: 'CallExpr',
-                  callee: 'print',
+                  callee: { type: 'VariableExpr', name: 'print', ...at(5, 3) },
                   args: [{ type: 'LiteralExpr', value: 'small', ...at(5, 9) }],
                   ...at(5, 3),
                 },
