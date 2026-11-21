@@ -1,0 +1,790 @@
+# Self-hosted Spool compiler. Expects tokenize/parse from lexer+parser (concatenate).
+# Emits a Chunk as plain maps/arrays. Opcodes are strings matching Op names in bytecode.ts.
+# Quantities in constants keep {"type":"Quantity","value":n,"unit":{"px":a,"s":b}}.
+# Reuses nil/hasKey from parser.spool when concatenated.
+
+fn slotSpan() {
+  return 1024
+}
+
+fn copyScopes(parentScopes) {
+  let scopes = []
+  for s in parentScopes {
+    push(scopes, s)
+  }
+  return scopes
+}
+
+fn makeCompiler(name, params, parentScopes) {
+  let scopes = copyScopes(parentScopes)
+  push(scopes, { "names": {}, "next": 0 })
+  let c = {
+    "chunk": {
+      "name": name,
+      "params": params,
+      "code": [],
+      "constants": [],
+      "names": [],
+      "functions": [],
+      "labels": [],
+      "patterns": []
+    },
+    "scopes": scopes
+  }
+  for p in params {
+    cReserve(c, p)
+  }
+  return c
+}
+
+fn cReserve(c, name) {
+  let scopes = c["scopes"]
+  let scope = scopes[len(scopes) - 1]
+  if hasKey(scope["names"], name) {
+    return scope["names"][name]
+  }
+  let slot = scope["next"]
+  scope["next"] = slot + 1
+  scope["names"][name] = slot
+  return slot
+}
+
+fn cLookup(c, name) {
+  let scopes = c["scopes"]
+  let i = len(scopes) - 1
+  while i >= 0 {
+    let scope = scopes[i]
+    if hasKey(scope["names"], name) {
+      return { "found": true, "depth": len(scopes) - 1 - i, "slot": scope["names"][name] }
+    }
+    i = i - 1
+  }
+  return { "found": false, "depth": 0, "slot": 0 }
+}
+
+fn cName(c, name) {
+  let names = c["chunk"]["names"]
+  let i = 0
+  while i < len(names) {
+    if names[i] == name { return i }
+    i = i + 1
+  }
+  push(names, name)
+  return len(names) - 1
+}
+
+fn cConstant(c, value) {
+  let constants = c["chunk"]["constants"]
+  let i = 0
+  while i < len(constants) {
+    if constants[i] == value { return i }
+    i = i + 1
+  }
+  push(constants, value)
+  return len(constants) - 1
+}
+
+fn cLabel(c, label) {
+  let labels = c["chunk"]["labels"]
+  push(labels, label)
+  return len(labels) - 1
+}
+
+fn cEmit(c, op, line, column, arg, hasExtra, extra) {
+  let ip = len(c["chunk"]["code"])
+  let ins = { "op": op, "arg": arg, "line": line, "column": column }
+  if hasExtra {
+    ins["extra"] = extra
+  }
+  push(c["chunk"]["code"], ins)
+  return ip
+}
+
+fn cEmitAt(c, op, loc, arg) {
+  return cEmit(c, op, loc["line"], loc["column"], arg, false, 0)
+}
+
+fn cEmitExtra(c, op, loc, arg, extra) {
+  return cEmit(c, op, loc["line"], loc["column"], arg, true, extra)
+}
+
+fn cPatch(c, ip) {
+  let ins = c["chunk"]["code"][ip]
+  ins["arg"] = len(c["chunk"]["code"])
+}
+
+fn cPushScope(c, loc, label) {
+  cEmitAt(c, "PUSH_SCOPE", loc, cLabel(c, label))
+  push(c["scopes"], { "names": {}, "next": 0 })
+}
+
+fn cPopScope(c, loc) {
+  cEmitAt(c, "POP_SCOPE", loc, 0)
+  pop(c["scopes"])
+}
+
+fn cLoadName(c, loc, name) {
+  let found = cLookup(c, name)
+  if not found["found"] {
+    cEmitAt(c, "LOAD", loc, cName(c, name))
+    return
+  }
+  cEmitExtra(c, "LOCAL_GET", loc, found["depth"] * slotSpan() + found["slot"], cName(c, name))
+}
+
+fn cStoreName(c, loc, name) {
+  let found = cLookup(c, name)
+  if not found["found"] {
+    cEmitAt(c, "STORE", loc, cName(c, name))
+    return
+  }
+  cEmitExtra(c, "LOCAL_SET", loc, found["depth"] * slotSpan() + found["slot"], cName(c, name))
+}
+
+fn cDefineSlot(c, loc, name, slot) {
+  cEmitExtra(c, "LOCAL_DEF", loc, slot, cName(c, name))
+}
+
+fn cDefineName(c, loc, name) {
+  cDefineSlot(c, loc, name, cReserve(c, name))
+}
+
+fn cApplyUpdate(c, op, loc) {
+  if op == "+" { cEmitAt(c, "ADD", loc, 0) }
+  else {
+    if op == "-" { cEmitAt(c, "SUB", loc, 0) }
+    else {
+      if op == "*" { cEmitAt(c, "MUL", loc, 0) }
+    }
+  }
+}
+
+fn cBinaryOp(op) {
+  if op == "+" { return "ADD" }
+  if op == "-" { return "SUB" }
+  if op == "*" { return "MUL" }
+  if op == "/" { return "DIV" }
+  if op == "%" { return "MOD" }
+  if op == "==" { return "EQ" }
+  if op == "!=" { return "NE" }
+  if op == "<" { return "LT" }
+  if op == ">" { return "GT" }
+  if op == "<=" { return "LE" }
+  if op == ">=" { return "GE" }
+  return "ADD"
+}
+
+fn paramNames(params) {
+  let names = []
+  for p in params {
+    push(names, p["name"])
+  }
+  return names
+}
+
+fn cClosure(c, name, params, body, loc) {
+  let child = makeCompiler(name, paramNames(params), c["scopes"])
+  cStatements(child, body["statements"])
+  let index = len(c["chunk"]["functions"])
+  push(c["chunk"]["functions"], child["chunk"])
+  cEmitAt(c, "CLOSURE", loc, index)
+}
+
+fn cBlock(c, block) {
+  cPushScope(c, block, "block")
+  cStatements(c, block["statements"])
+  cPopScope(c, block)
+}
+
+fn cRepeat(c, statement) {
+  cEmitAt(c, "PAUSE", statement, 0)
+  cExpression(c, statement["count"])
+  cEmitAt(c, "CHECK_COUNT", statement["count"], 0)
+  cPushScope(c, statement, "repeat")
+  cDefineName(c, statement, "$n")
+  cEmitAt(c, "CONST", statement, cConstant(c, 0))
+  cDefineName(c, statement, "$i")
+  let check = cEmitAt(c, "JUMP", statement, 0)
+  let body = len(c["chunk"]["code"])
+  cBlock(c, statement["body"])
+  cLoadName(c, statement, "$i")
+  cEmitAt(c, "CONST", statement, cConstant(c, 1))
+  cEmitAt(c, "ADD", statement, 0)
+  cStoreName(c, statement, "$i")
+  cPatch(c, check)
+  cLoadName(c, statement, "$i")
+  cLoadName(c, statement, "$n")
+  cEmitAt(c, "LT", statement, 0)
+  let done = cEmitAt(c, "JUMP_IF_FALSE", statement, 0)
+  cLoadName(c, statement, "$i")
+  cEmitAt(c, "CONST", statement, cConstant(c, 0))
+  cEmitAt(c, "EQ", statement, 0)
+  let first = cEmitAt(c, "JUMP_IF_TRUE", statement, 0)
+  cEmitAt(c, "PAUSE", statement, 0)
+  cPatch(c, first)
+  cEmitAt(c, "JUMP", statement, body)
+  cPatch(c, done)
+  cPopScope(c, statement)
+}
+
+fn cForLoop(c, statement) {
+  cPushScope(c, statement, "for")
+  cEmitAt(c, "CONST", statement, cConstant(c, 0))
+  cDefineName(c, statement, "$ready")
+  cEmitAt(c, "CONST", statement, cConstant(c, 0))
+  cDefineName(c, statement, "$i")
+  let loop = len(c["chunk"]["code"])
+  cEmitAt(c, "PAUSE", statement, 0)
+  cLoadName(c, statement, "$ready")
+  cEmitAt(c, "CONST", statement, cConstant(c, 0))
+  cEmitAt(c, "EQ", statement, 0)
+  let check = cEmitAt(c, "JUMP_IF_FALSE", statement, 0)
+  cEmitAt(c, "CONST", statement, cConstant(c, 1))
+  cStoreName(c, statement, "$ready")
+  cExpression(c, statement["start"])
+  cEmitAt(c, "CHECK_INT", statement["start"], 0)
+  cStoreName(c, statement, "$i")
+  cExpression(c, statement["end"])
+  cEmitAt(c, "CHECK_INT", statement["end"], 0)
+  cDefineName(c, statement, "$end")
+  cPatch(c, check)
+  cLoadName(c, statement, "$i")
+  cLoadName(c, statement, "$end")
+  cEmitAt(c, "LT", statement, 0)
+  let done = cEmitAt(c, "JUMP_IF_FALSE", statement, 0)
+  cPushScope(c, statement, "for")
+  cLoadName(c, statement, "$i")
+  cDefineName(c, statement, statement["name"])
+  cBlock(c, statement["body"])
+  cPopScope(c, statement)
+  cLoadName(c, statement, "$i")
+  cEmitAt(c, "CONST", statement, cConstant(c, 1))
+  cEmitAt(c, "ADD", statement, 0)
+  cStoreName(c, statement, "$i")
+  cEmitAt(c, "JUMP", statement, loop)
+  cPatch(c, done)
+  cPopScope(c, statement)
+}
+
+fn cForIn(c, statement) {
+  cPushScope(c, statement, "for")
+  cEmitAt(c, "CONST", statement, cConstant(c, 0))
+  cDefineName(c, statement, "$ready")
+  cEmitAt(c, "CONST", statement, cConstant(c, 0))
+  cDefineName(c, statement, "$i")
+  let loop = len(c["chunk"]["code"])
+  cEmitAt(c, "PAUSE", statement, 0)
+  cLoadName(c, statement, "$ready")
+  cEmitAt(c, "CONST", statement, cConstant(c, 0))
+  cEmitAt(c, "EQ", statement, 0)
+  let check = cEmitAt(c, "JUMP_IF_FALSE", statement, 0)
+  cEmitAt(c, "CONST", statement, cConstant(c, 1))
+  cStoreName(c, statement, "$ready")
+  cExpression(c, statement["collection"])
+  cEmitAt(c, "ITEMS", statement["collection"], 0)
+  cDefineName(c, statement, "$items")
+  cLoadName(c, statement, "$items")
+  cEmitAt(c, "LEN", statement, 0)
+  cDefineName(c, statement, "$end")
+  cPatch(c, check)
+  cLoadName(c, statement, "$i")
+  cLoadName(c, statement, "$end")
+  cEmitAt(c, "LT", statement, 0)
+  let done = cEmitAt(c, "JUMP_IF_FALSE", statement, 0)
+  cPushScope(c, statement, "for")
+  cLoadName(c, statement, "$items")
+  cLoadName(c, statement, "$i")
+  cEmitAt(c, "INDEX", statement, 0)
+  cDefineName(c, statement, statement["name"])
+  cBlock(c, statement["body"])
+  cPopScope(c, statement)
+  cLoadName(c, statement, "$i")
+  cEmitAt(c, "CONST", statement, cConstant(c, 1))
+  cEmitAt(c, "ADD", statement, 0)
+  cStoreName(c, statement, "$i")
+  cEmitAt(c, "JUMP", statement, loop)
+  cPatch(c, done)
+  cPopScope(c, statement)
+}
+
+fn cEach(c, statement) {
+  cPushScope(c, statement, "each")
+  cEmitAt(c, "CONST", statement, cConstant(c, 0))
+  cDefineName(c, statement, "$ready")
+  cEmitAt(c, "CONST", statement, cConstant(c, 0))
+  cDefineName(c, statement, "$i")
+  let loop = len(c["chunk"]["code"])
+  cEmitAt(c, "PAUSE", statement, 0)
+  cLoadName(c, statement, "$ready")
+  cEmitAt(c, "CONST", statement, cConstant(c, 0))
+  cEmitAt(c, "EQ", statement, 0)
+  let check = cEmitAt(c, "JUMP_IF_FALSE", statement, 0)
+  cEmitAt(c, "CONST", statement, cConstant(c, 1))
+  cStoreName(c, statement, "$ready")
+  cLoadName(c, statement, statement["typeName"])
+  cEmitAt(c, "ENTITIES", statement, 0)
+  cDefineName(c, statement, "$items")
+  cLoadName(c, statement, "$items")
+  cEmitAt(c, "LEN", statement, 0)
+  cDefineName(c, statement, "$end")
+  cPatch(c, check)
+  cLoadName(c, statement, "$i")
+  cLoadName(c, statement, "$end")
+  cEmitAt(c, "LT", statement, 0)
+  let done = cEmitAt(c, "JUMP_IF_FALSE", statement, 0)
+  cPushScope(c, statement, "each")
+  cLoadName(c, statement, "$items")
+  cLoadName(c, statement, "$i")
+  cEmitAt(c, "INDEX", statement, 0)
+  cDefineName(c, statement, statement["name"])
+  cLoadName(c, statement, statement["name"])
+  cEmitAt(c, "ALIVE", statement, 0)
+  let skipDead = cEmitAt(c, "JUMP_IF_FALSE", statement, 0)
+  if statement["where"] != nil() {
+    cExpression(c, statement["where"])
+    let skipWhere = cEmitAt(c, "JUMP_IF_FALSE", statement["where"], 0)
+    cBlock(c, statement["body"])
+    cPatch(c, skipWhere)
+  } else {
+    cBlock(c, statement["body"])
+  }
+  cPatch(c, skipDead)
+  cPopScope(c, statement)
+  cLoadName(c, statement, "$i")
+  cEmitAt(c, "CONST", statement, cConstant(c, 1))
+  cEmitAt(c, "ADD", statement, 0)
+  cStoreName(c, statement, "$i")
+  cEmitAt(c, "JUMP", statement, loop)
+  cPatch(c, done)
+  cPopScope(c, statement)
+}
+
+fn cMatch(c, expr) {
+  cPushScope(c, expr, "match")
+  cExpression(c, expr["scrutinee"])
+  cDefineName(c, expr, "$subject")
+  let ends = []
+  for arm in expr["arms"] {
+    cLoadName(c, arm["pattern"], "$subject")
+    let index = len(c["chunk"]["patterns"])
+    push(c["chunk"]["patterns"], arm["pattern"])
+    cEmitAt(c, "TRY_PATTERN", arm["pattern"], index)
+    let skip = cEmitAt(c, "JUMP_IF_FALSE", arm["pattern"], 0)
+    cExpression(c, arm["body"])
+    push(ends, cEmitAt(c, "JUMP", arm["body"], 0))
+    cPatch(c, skip)
+  }
+  cEmitAt(c, "MATCH_FAIL", expr, 0)
+  for end in ends {
+    cPatch(c, end)
+  }
+  cPopScope(c, expr)
+}
+
+fn cBinary(c, expr) {
+  let op = expr["operator"]
+  if op == "and" {
+    cExpression(c, expr["left"])
+    let skip = cEmitAt(c, "JUMP_IF_FALSE", expr["left"], 0)
+    cExpression(c, expr["right"])
+    cEmitAt(c, "CHECK_BOOL", expr["right"], 0)
+    let end = cEmitAt(c, "JUMP", expr, 0)
+    cPatch(c, skip)
+    cEmitAt(c, "CONST", expr, cConstant(c, false))
+    cPatch(c, end)
+    return
+  }
+  if op == "or" {
+    cExpression(c, expr["left"])
+    let skip = cEmitAt(c, "JUMP_IF_TRUE", expr["left"], 0)
+    cExpression(c, expr["right"])
+    cEmitAt(c, "CHECK_BOOL", expr["right"], 0)
+    let end = cEmitAt(c, "JUMP", expr, 0)
+    cPatch(c, skip)
+    cEmitAt(c, "CONST", expr, cConstant(c, true))
+    cPatch(c, end)
+    return
+  }
+  if op == "|>" {
+    let right = expr["right"]
+    if right["type"] == "CallExpr" {
+      cExpression(c, right["callee"])
+      cExpression(c, expr["left"])
+      for arg in right["args"] {
+        cExpression(c, arg)
+      }
+      cEmitAt(c, "CALL", expr, len(right["args"]) + 1)
+      return
+    }
+    cExpression(c, right)
+    cExpression(c, expr["left"])
+    cEmitAt(c, "CALL", expr, 1)
+    return
+  }
+  cExpression(c, expr["left"])
+  cExpression(c, expr["right"])
+  cEmitAt(c, cBinaryOp(op), expr, 0)
+}
+
+fn cExpression(c, expr) {
+  let t = expr["type"]
+  if t == "LiteralExpr" {
+    cEmitAt(c, "CONST", expr, cConstant(c, expr["value"]))
+    return
+  }
+  if t == "VariableExpr" {
+    cLoadName(c, expr, expr["name"])
+    return
+  }
+  if t == "SpawnExpr" {
+    cExpression(c, expr["x"])
+    cExpression(c, expr["y"])
+    cLoadName(c, expr, expr["name"])
+    for field in expr["fields"] {
+      cEmitAt(c, "CONST", field, cConstant(c, field["name"]))
+      cExpression(c, field["value"])
+    }
+    cEmitAt(c, "SPAWN", expr, len(expr["fields"]))
+    return
+  }
+  if t == "ArrayExpr" {
+    for element in expr["elements"] {
+      cExpression(c, element)
+    }
+    cEmitAt(c, "ARRAY", expr, len(expr["elements"]))
+    return
+  }
+  if t == "IndexExpr" {
+    cExpression(c, expr["object"])
+    cExpression(c, expr["index"])
+    cEmitAt(c, "INDEX", expr, 0)
+    return
+  }
+  if t == "FnExpr" {
+    cClosure(c, "(anonymous)", expr["params"], expr["body"], expr)
+    return
+  }
+  if t == "FieldExpr" {
+    cExpression(c, expr["object"])
+    let loc = { "line": expr["nameLine"], "column": expr["nameColumn"] }
+    cEmitAt(c, "GET_FIELD", loc, cName(c, expr["name"]))
+    return
+  }
+  if t == "MapExpr" {
+    for entry in expr["entries"] {
+      cEmitAt(c, "CONST", entry, cConstant(c, entry["key"]))
+      cExpression(c, entry["value"])
+    }
+    cEmitAt(c, "MAKE_MAP", expr, len(expr["entries"]))
+    return
+  }
+  if t == "RecordExpr" {
+    cLoadName(c, expr, expr["name"])
+    for field in expr["fields"] {
+      cEmitAt(c, "CONST", field, cConstant(c, field["name"]))
+      cExpression(c, field["value"])
+    }
+    cEmitAt(c, "MAKE_RECORD", expr, len(expr["fields"]))
+    return
+  }
+  if t == "InterpExpr" {
+    let emitted = 0
+    for part in expr["parts"] {
+      if part["type"] == "text" {
+        cEmitAt(c, "CONST", expr, cConstant(c, part["text"]))
+      } else {
+        cExpression(c, part["expr"])
+        cEmitAt(c, "STR", part["expr"], 0)
+      }
+      if emitted > 0 {
+        cEmitAt(c, "ADD", expr, 0)
+      }
+      emitted = emitted + 1
+    }
+    if emitted == 0 {
+      cEmitAt(c, "CONST", expr, cConstant(c, ""))
+    }
+    return
+  }
+  if t == "MatchExpr" {
+    cMatch(c, expr)
+    return
+  }
+  if t == "UnaryExpr" {
+    cExpression(c, expr["operand"])
+    if expr["operator"] == "-" {
+      cEmitAt(c, "NEG", expr["operand"], 0)
+    } else {
+      cEmitAt(c, "NOT", expr["operand"], 0)
+    }
+    return
+  }
+  if t == "CallExpr" {
+    cExpression(c, expr["callee"])
+    for arg in expr["args"] {
+      cExpression(c, arg)
+    }
+    cEmitAt(c, "CALL", expr, len(expr["args"]))
+    return
+  }
+  if t == "BinaryExpr" {
+    cBinary(c, expr)
+    return
+  }
+}
+
+fn eventCode(event) {
+  if event == "start" { return 0 }
+  if event == "tick" { return 1 }
+  if event == "key" { return 2 }
+  return 3
+}
+
+fn cStatement(c, statement) {
+  let t = statement["type"]
+  if t == "LetStmt" {
+    cEmitAt(c, "PAUSE", statement, 0)
+    cExpression(c, statement["value"])
+    cDefineName(c, statement, statement["name"])
+    return
+  }
+  if t == "AssignStmt" {
+    cEmitAt(c, "PAUSE", statement, 0)
+    if statement["op"] != nil() {
+      cLoadName(c, statement, statement["name"])
+    }
+    cExpression(c, statement["value"])
+    cApplyUpdate(c, statement["op"], statement)
+    cStoreName(c, statement, statement["name"])
+    return
+  }
+  if t == "IndexAssignStmt" {
+    cEmitAt(c, "PAUSE", statement, 0)
+    cExpression(c, statement["object"])
+    cExpression(c, statement["index"])
+    if statement["op"] != nil() {
+      cEmitAt(c, "DUP2", statement, 0)
+      cEmitAt(c, "INDEX", statement, 0)
+    }
+    cExpression(c, statement["value"])
+    cApplyUpdate(c, statement["op"], statement)
+    cEmitAt(c, "SET_INDEX", statement, 0)
+    return
+  }
+  if t == "ExprStmt" {
+    cEmitAt(c, "PAUSE", statement, 0)
+    cExpression(c, statement["expression"])
+    cEmitAt(c, "SET_RESULT", statement, 0)
+    return
+  }
+  if t == "IfStmt" {
+    cEmitAt(c, "PAUSE", statement, 0)
+    cExpression(c, statement["condition"])
+    let skipThen = cEmitAt(c, "JUMP_IF_FALSE", statement["condition"], 0)
+    cBlock(c, statement["thenBranch"])
+    if statement["elseBranch"] == nil() {
+      cPatch(c, skipThen)
+      return
+    }
+    let skipElse = cEmitAt(c, "JUMP", statement, 0)
+    cPatch(c, skipThen)
+    cBlock(c, statement["elseBranch"])
+    cPatch(c, skipElse)
+    return
+  }
+  if t == "WhileStmt" {
+    let loop = len(c["chunk"]["code"])
+    cEmitAt(c, "PAUSE", statement, 0)
+    cExpression(c, statement["condition"])
+    let done = cEmitAt(c, "JUMP_IF_FALSE", statement["condition"], 0)
+    cBlock(c, statement["body"])
+    cEmitAt(c, "JUMP", statement, loop)
+    cPatch(c, done)
+    return
+  }
+  if t == "RepeatStmt" {
+    cRepeat(c, statement)
+    return
+  }
+  if t == "ForStmt" {
+    cForLoop(c, statement)
+    return
+  }
+  if t == "ForInStmt" {
+    cForIn(c, statement)
+    return
+  }
+  if t == "RecordStmt" {
+    cEmitAt(c, "PAUSE", statement, 0)
+    for field in statement["fields"] {
+      cEmitAt(c, "CONST", statement, cConstant(c, field))
+    }
+    cEmitAt(c, "CONST", statement, cConstant(c, len(statement["fields"])))
+    cEmitAt(c, "RECORD_TYPE", statement, cName(c, statement["name"]))
+    cDefineName(c, statement, statement["name"])
+    return
+  }
+  if t == "UseStmt" {
+    cEmitAt(c, "PAUSE", statement, 0)
+    cEmitAt(c, "USE_MODULE", statement, cName(c, statement["name"]))
+    cDefineName(c, statement, statement["name"])
+    return
+  }
+  if t == "OnStmt" {
+    cEmitAt(c, "PAUSE", statement, 0)
+    let params = []
+    if statement["param"] != nil() {
+      push(params, { "name": statement["param"], "line": statement["line"], "column": statement["column"] })
+    }
+    cClosure(c, statement["event"], params, statement["body"], statement)
+    let key = ""
+    if statement["key"] != nil() {
+      key = statement["key"]
+    }
+    cEmitAt(c, "CONST", statement, cConstant(c, key))
+    cEmitAt(c, "REGISTER", statement, eventCode(statement["event"]))
+    return
+  }
+  if t == "EntityStmt" {
+    cEmitAt(c, "PAUSE", statement, 0)
+    for field in statement["fields"] {
+      cEmitAt(c, "CONST", statement, cConstant(c, field))
+    }
+    cEmitAt(c, "CONST", statement, cConstant(c, len(statement["fields"])))
+    cEmitAt(c, "ENTITY_TYPE", statement, cName(c, statement["name"]))
+    cDefineName(c, statement, statement["name"])
+    return
+  }
+  if t == "DespawnStmt" {
+    cEmitAt(c, "PAUSE", statement, 0)
+    cExpression(c, statement["entity"])
+    cEmitAt(c, "DESPAWN", statement, 0)
+    return
+  }
+  if t == "EachStmt" {
+    cEach(c, statement)
+    return
+  }
+  if t == "WhenStmt" {
+    cEmitAt(c, "PAUSE", statement, 0)
+    cEmitAt(c, "CONST", statement, cConstant(c, statement["leftType"]))
+    cEmitAt(c, "CONST", statement, cConstant(c, statement["rightType"]))
+    let params = [
+      { "name": statement["left"], "line": statement["line"], "column": statement["column"] },
+      { "name": statement["right"], "line": statement["line"], "column": statement["column"] }
+    ]
+    cClosure(c, "touches", params, statement["body"], statement)
+    cEmitAt(c, "TOUCH", statement, 0)
+    return
+  }
+  if t == "TaskStmt" {
+    cEmitAt(c, "PAUSE", statement, 0)
+    cClosure(c, statement["name"], [], statement["body"], statement)
+    cEmitAt(c, "TASK", statement, 0)
+    return
+  }
+  if t == "WaitStmt" {
+    cEmitAt(c, "PAUSE", statement, 0)
+    if statement["condition"] != nil() {
+      let check = len(c["chunk"]["code"])
+      cExpression(c, statement["condition"])
+      let skip = cEmitAt(c, "JUMP_IF_TRUE", statement["condition"], 0)
+      cEmitAt(c, "WAIT_UNTIL", statement, 0)
+      cEmitAt(c, "JUMP", statement, check)
+      cPatch(c, skip)
+      return
+    }
+    cExpression(c, statement["time"])
+    cEmitAt(c, "WAIT_TIME", statement, 0)
+    return
+  }
+  if t == "EveryStmt" {
+    cEmitAt(c, "PAUSE", statement, 0)
+    let child = makeCompiler("every", [], c["scopes"])
+    let loop = len(child["chunk"]["code"])
+    cExpression(child, statement["interval"])
+    cEmitAt(child, "WAIT_TIME", statement["interval"], 0)
+    cBlock(child, statement["body"])
+    cEmitAt(child, "JUMP", statement, loop)
+    push(c["chunk"]["functions"], child["chunk"])
+    cEmitAt(c, "CLOSURE", statement, len(c["chunk"]["functions"]) - 1)
+    cEmitAt(c, "TASK", statement, 0)
+    return
+  }
+  if t == "AfterStmt" {
+    cEmitAt(c, "PAUSE", statement, 0)
+    let child = makeCompiler("after", [], c["scopes"])
+    cExpression(child, statement["delay"])
+    cEmitAt(child, "WAIT_TIME", statement["delay"], 0)
+    cBlock(child, statement["body"])
+    push(c["chunk"]["functions"], child["chunk"])
+    cEmitAt(c, "CLOSURE", statement, len(c["chunk"]["functions"]) - 1)
+    cEmitAt(c, "TASK", statement, 0)
+    return
+  }
+  if t == "FieldAssignStmt" {
+    cEmitAt(c, "PAUSE", statement, 0)
+    cExpression(c, statement["object"])
+    if statement["op"] != nil() {
+      cEmitAt(c, "DUP", statement, 0)
+      let loc = { "line": statement["nameLine"], "column": statement["nameColumn"] }
+      cEmitAt(c, "GET_FIELD", loc, cName(c, statement["name"]))
+    }
+    cExpression(c, statement["value"])
+    cApplyUpdate(c, statement["op"], statement)
+    let loc2 = { "line": statement["nameLine"], "column": statement["nameColumn"] }
+    cEmitAt(c, "SET_FIELD", loc2, cName(c, statement["name"]))
+    return
+  }
+  if t == "RewindStmt" {
+    cEmitAt(c, "PAUSE", statement, 0)
+    cExpression(c, statement["time"])
+    cEmitAt(c, "REWIND", statement, 0)
+    return
+  }
+  if t == "FnStmt" {
+    cEmitAt(c, "PAUSE", statement, 0)
+    let slot = cReserve(c, statement["name"])
+    cClosure(c, statement["name"], statement["params"], statement["body"], statement)
+    cDefineSlot(c, statement, statement["name"], slot)
+    return
+  }
+  if t == "ReturnStmt" {
+    cEmitAt(c, "PAUSE", statement, 0)
+    if statement["value"] != nil() {
+      cExpression(c, statement["value"])
+    } else {
+      cEmitAt(c, "CONST", statement, cConstant(c, nil()))
+    }
+    cEmitAt(c, "RETURN", statement, 0)
+    return
+  }
+}
+
+fn cStatements(c, statements) {
+  for statement in statements {
+    cStatement(c, statement)
+  }
+}
+
+fn compileProgram(program) {
+  let c = makeCompiler("<program>", [], [])
+  cStatements(c, program["body"])
+  return c["chunk"]
+}
+
+fn compile(source) {
+  let parsed = parse(source)
+  if not parsed["ok"] {
+    return {
+      "ok": false,
+      "code": parsed["code"],
+      "detail": parsed["detail"],
+      "line": parsed["line"],
+      "column": parsed["column"]
+    }
+  }
+  return { "ok": true, "chunk": compileProgram(parsed["program"]) }
+}
+
+compile

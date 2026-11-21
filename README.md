@@ -530,6 +530,26 @@ Phases 1–13 are done. The language growth, the VM, the optimizer, the timeline
 13. Playground: example gallery, error underlines, shareable URL
 14. Polish: demo GIF and deployment
 
+## Self-hosting
+
+Spool can lex, parse, and compile itself. The sources live under `selfhost/`:
+
+| File | Role |
+| --- | --- |
+| `lexer.spool` | `tokenize(source)` → tokens or an error map |
+| `parser.spool` | `parse(source)` → AST maps (same shape as `src/ast.ts`) or an error map |
+| `compiler.spool` | `compile(source)` → a bytecode `Chunk` or an error map |
+
+Harnesses in `src/selfhost/` concatenate the Spool bodies, inject the input through `__source()`, and run them on the TypeScript VM. Differential tests compare the Spool pipeline to the TypeScript lexer, parser, and compiler (`normalizeAst` / `normalizeChunk` strip TypeScript-only details so equality is plain data).
+
+**Compiler coverage.** `compiler.spool` mirrors `src/compile.ts`: the full statement and expression set the TypeScript compiler lowers, including locals, closures, match patterns, entities, tasks, and rewind. Opcodes in the emitted chunk are **strings** (`"CONST"`, `"JUMP"`, …). `normalizeChunk` turns TypeScript numeric `Op` values into the same strings and rewrites quantities as `{ type: "Quantity", value, unit }`.
+
+**Bootstrap.** Stage 1 is TypeScript `compile(parse(compiler.spool))`, normalized. Stage 2 is the Spool compiler running on the VM over the same `compiler.spool` source. The test requires the two chunks to be identical — a fixed point between the host compiler and the self-hosted one on the compiler's own source.
+
+```bash
+npm test -- tests/selfhost-lexer.test.ts tests/selfhost-parser.test.ts tests/selfhost-compiler.test.ts
+```
+
 ## Getting started
 
 ```bash
