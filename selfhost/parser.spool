@@ -1,0 +1,1233 @@
+# Self-hosted Spool parser. Expects tokenize() from lexer.spool (concatenate sources).
+# AST nodes are plain maps with type names matching src/ast.ts.
+# Quantities: {"type":"Quantity","value":n,"unit":{"px":a,"s":b}}.
+
+fn nil() {
+  return
+}
+
+fn max2(a, b) {
+  if a > b { return a }
+  return b
+}
+
+fn isDigitChar(c) {
+  if c == "" { return false }
+  let n = ord(c)
+  return n >= 48 and n <= 57
+}
+
+fn hasKey(m, key) {
+  for k in m {
+    if k == key { return true }
+  }
+  return false
+}
+
+fn contains(arr, item) {
+  for x in arr {
+    if x == item { return true }
+  }
+  return false
+}
+
+fn parseFloatStr(s) {
+  return __number(s)
+}
+
+fn unitFromSuffix(suffix) {
+  if suffix == "px" { return { "px": 1, "s": 0 } }
+  if suffix == "s" { return { "px": 0, "s": 1 } }
+  if suffix == "px/s" { return { "px": 1, "s": -1 } }
+  return { "px": 0, "s": 0 }
+}
+
+fn parseNumberLiteral(lexeme) {
+  let i = 0
+  while i < len(lexeme) and isDigitChar(lexeme[i]) { i = i + 1 }
+  if i < len(lexeme) and lexeme[i] == "." {
+    i = i + 1
+    while i < len(lexeme) and isDigitChar(lexeme[i]) { i = i + 1 }
+  }
+  let numText = slice(lexeme, 0, i)
+  let value = parseFloatStr(numText)
+  let suffix = slice(lexeme, i, len(lexeme))
+  if suffix == "" { return { "qty": false, "value": value, "unit": { "px": 0, "s": 0 } } }
+  return { "qty": true, "value": value, "unit": unitFromSuffix(suffix) }
+}
+
+fn numberValue(parsed) {
+  if parsed["qty"] {
+    return { "type": "Quantity", "value": parsed["value"], "unit": parsed["unit"] }
+  }
+  return parsed["value"]
+}
+
+fn decodeString(lexeme) {
+  let inner = slice(lexeme, 1, len(lexeme) - 1)
+  let value = ""
+  let i = 0
+  while i < len(inner) {
+    if inner[i] == "\\" {
+      let esc = inner[i + 1]
+      if esc == "n" { value = value + "\n" }
+      else {
+        if esc == "t" { value = value + "\t" }
+        else {
+          if esc == "\\" { value = value + "\\" }
+          else {
+            if esc == "\"" { value = value + "\"" }
+            else {
+              if esc == char(123) { value = value + char(123) }
+              else {
+                if esc == char(125) { value = value + char(125) }
+                else { value = value + esc }
+              }
+            }
+          }
+        }
+      }
+      i = i + 2
+    } else {
+      value = value + inner[i]
+      i = i + 1
+    }
+  }
+  return value
+}
+
+fn builtinArity(name) {
+  if name == "forward" { return 1 }
+  if name == "back" { return 1 }
+  if name == "turn" { return 1 }
+  if name == "penup" { return 0 }
+  if name == "pendown" { return 0 }
+  if name == "color" { return 1 }
+  if name == "width" { return 1 }
+  if name == "goto" { return 2 }
+  if name == "print" { return 1 }
+  return -1
+}
+
+fn binaryInfo(type) {
+  if type == "PIPE" { return { "found": true, "operator": "|>", "precedence": 0 } }
+  if type == "OR" { return { "found": true, "operator": "or", "precedence": 1 } }
+  if type == "AND" { return { "found": true, "operator": "and", "precedence": 2 } }
+  if type == "EQ" { return { "found": true, "operator": "==", "precedence": 4 } }
+  if type == "NOT_EQ" { return { "found": true, "operator": "!=", "precedence": 4 } }
+  if type == "LT" { return { "found": true, "operator": "<", "precedence": 4 } }
+  if type == "GT" { return { "found": true, "operator": ">", "precedence": 4 } }
+  if type == "LTE" { return { "found": true, "operator": "<=", "precedence": 4 } }
+  if type == "GTE" { return { "found": true, "operator": ">=", "precedence": 4 } }
+  if type == "PLUS" { return { "found": true, "operator": "+", "precedence": 5 } }
+  if type == "MINUS" { return { "found": true, "operator": "-", "precedence": 5 } }
+  if type == "STAR" { return { "found": true, "operator": "*", "precedence": 6 } }
+  if type == "SLASH" { return { "found": true, "operator": "/", "precedence": 6 } }
+  if type == "PERCENT" { return { "found": true, "operator": "%", "precedence": 6 } }
+  return { "found": false, "operator": "", "precedence": 0 }
+}
+
+fn unaryInfo(type) {
+  if type == "NOT" { return { "found": true, "operator": "not", "precedence": 3 } }
+  if type == "MINUS" { return { "found": true, "operator": "-", "precedence": 7 } }
+  return { "found": false, "operator": "", "precedence": 0 }
+}
+
+fn failParse(p, code, detail, line, column) {
+  p["failed"] = true
+  p["code"] = code
+  p["detail"] = detail
+  p["errLine"] = line
+  p["errColumn"] = column
+}
+
+fn pAtEnd(p) {
+  return pPeek(p)["type"] == "EOF"
+}
+
+fn tokenAt(p, i) {
+  let n = len(p["tokens"])
+  if i >= n { return p["tokens"][n - 1] }
+  if i < 0 { return p["tokens"][0] }
+  return p["tokens"][i]
+}
+
+fn pPeek(p) {
+  return tokenAt(p, p["current"])
+}
+
+fn pPeekNext(p) {
+  return tokenAt(p, p["current"] + 1)
+}
+
+fn pAdvance(p) {
+  let token = pPeek(p)
+  if not pAtEnd(p) { p["current"] = p["current"] + 1 }
+  return token
+}
+
+fn check(p, type) {
+  return pPeek(p)["type"] == type
+}
+
+fn expected(p, what) {
+  let token = pPeek(p)
+  let found = "end of input"
+  if token["type"] != "EOF" { found = "'" + token["lexeme"] + "'" }
+  failParse(p, "E0105", "Expected " + what + ", got " + found, token["line"], token["column"])
+}
+
+fn unexpected(p) {
+  let token = pPeek(p)
+  if token["type"] == "EOF" {
+    failParse(p, "E0106", "Unexpected end of input", token["line"], token["column"])
+  } else {
+    failParse(p, "E0107", "Unexpected token '" + token["lexeme"] + "'", token["line"], token["column"])
+  }
+}
+
+fn consume(p, type, what) {
+  if not check(p, type) {
+    expected(p, what)
+    return pPeek(p)
+  }
+  return pAdvance(p)
+}
+
+fn span(p, start) {
+  let end = tokenAt(p, max2(p["current"] - 1, 0))
+  return {
+    "line": start["line"],
+    "column": start["column"],
+    "endLine": end["line"],
+    "endColumn": end["column"] + len(end["lexeme"])
+  }
+}
+
+fn spanFrom(node) {
+  let endLine = node["line"]
+  let endColumn = node["column"]
+  if hasKey(node, "endLine") { endLine = node["endLine"] }
+  if hasKey(node, "endColumn") { endColumn = node["endColumn"] }
+  return {
+    "line": node["line"],
+    "column": node["column"],
+    "endLine": endLine,
+    "endColumn": endColumn
+  }
+}
+
+fn mergeLoc(node, loc) {
+  node["line"] = loc["line"]
+  node["column"] = loc["column"]
+  node["endLine"] = loc["endLine"]
+  node["endColumn"] = loc["endColumn"]
+  return node
+}
+
+fn endOf(node) {
+  if hasKey(node, "endLine") { return { "line": node["endLine"], "column": node["endColumn"] } }
+  return { "line": node["line"], "column": node["column"] }
+}
+
+fn startsExpression(p) {
+  let t = pPeek(p)["type"]
+  return t == "NUMBER" or t == "STRING" or t == "TRUE" or t == "FALSE" or t == "IDENTIFIER" or t == "MINUS" or t == "NOT" or t == "LPAREN" or t == "LBRACKET" or t == "LBRACE" or t == "FN" or t == "MATCH" or t == "SPAWN" or t == "TEMPLATE_HEAD"
+}
+
+fn beforeBlock(p, parseFn) {
+  let previous = p["braceIsBlock"]
+  p["braceIsBlock"] = true
+  let result = parseFn()
+  p["braceIsBlock"] = previous
+  return result
+}
+
+fn parameter(p, soFar) {
+  let token = consume(p, "IDENTIFIER", "a parameter name")
+  if p["failed"] { return { "name": "", "line": 0, "column": 0 } }
+  for param in soFar {
+    if param["name"] == token["lexeme"] {
+      failParse(p, "E0102", "Duplicate parameter '" + token["lexeme"] + "'", token["line"], token["column"])
+      return { "name": token["lexeme"], "line": token["line"], "column": token["column"] }
+    }
+  }
+  return { "name": token["lexeme"], "line": token["line"], "column": token["column"] }
+}
+
+fn parameterList(p) {
+  let params = []
+  if check(p, "RPAREN") { return params }
+  push(params, parameter(p, params))
+  if p["failed"] { return params }
+  while check(p, "COMMA") {
+    pAdvance(p)
+    push(params, parameter(p, params))
+    if p["failed"] { return params }
+  }
+  return params
+}
+
+fn fieldName(p, seen) {
+  let token = consume(p, "IDENTIFIER", "a field name")
+  if p["failed"] { return "" }
+  if contains(seen, token["lexeme"]) {
+    failParse(p, "E0109", "Field '" + token["lexeme"] + "' is repeated", token["line"], token["column"])
+  }
+  return token["lexeme"]
+}
+
+fn fieldNames(p) {
+  let names = []
+  if check(p, "RBRACE") { return names }
+  push(names, fieldName(p, names))
+  if p["failed"] { return names }
+  while check(p, "COMMA") {
+    pAdvance(p)
+    push(names, fieldName(p, names))
+    if p["failed"] { return names }
+  }
+  return names
+}
+
+fn fieldInit(p, seen) {
+  let token = consume(p, "IDENTIFIER", "a field name")
+  if p["failed"] { return { "name": "", "value": nil(), "line": 0, "column": 0 } }
+  if hasKey(seen, token["lexeme"]) {
+    failParse(p, "E0109", "Field '" + token["lexeme"] + "' is repeated", token["line"], token["column"])
+    return { "name": token["lexeme"], "value": nil(), "line": token["line"], "column": token["column"] }
+  }
+  seen[token["lexeme"]] = true
+  consume(p, "COLON", "':'")
+  if p["failed"] { return { "name": token["lexeme"], "value": nil(), "line": token["line"], "column": token["column"] } }
+  let value = climb(p, 0)
+  return { "name": token["lexeme"], "value": value, "line": token["line"], "column": token["column"] }
+}
+
+fn block(p) {
+  let brace = consume(p, "LBRACE", "'" + char(123) + "'")
+  if p["failed"] { return { "type": "BlockStmt", "statements": [], "line": 0, "column": 0, "endLine": 0, "endColumn": 0 } }
+  let statements = []
+  while not check(p, "RBRACE") and not pAtEnd(p) {
+    if check(p, "ELSE") {
+      failParse(p, "E0101", "Expected '" + char(125) + "' before 'else'", pPeek(p)["line"], pPeek(p)["column"])
+      return { "type": "BlockStmt", "statements": statements, "line": brace["line"], "column": brace["column"], "endLine": brace["line"], "endColumn": brace["column"] }
+    }
+    push(statements, statement(p))
+    if p["failed"] { return { "type": "BlockStmt", "statements": statements, "line": brace["line"], "column": brace["column"], "endLine": brace["line"], "endColumn": brace["column"] } }
+  }
+  consume(p, "RBRACE", "'" + char(125) + "'")
+  let loc = span(p, brace)
+  return { "type": "BlockStmt", "statements": statements, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn letStatement(p) {
+  let keyword = pAdvance(p)
+  let name = consume(p, "IDENTIFIER", "a variable name")
+  if p["failed"] { return nil() }
+  consume(p, "ASSIGN", "'='")
+  if p["failed"] { return nil() }
+  let value = climb(p, 0)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "LetStmt", "name": name["lexeme"], "value": value, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn assignStatement(p) {
+  let name = pAdvance(p)
+  consume(p, "ASSIGN", "'='")
+  if p["failed"] { return nil() }
+  let value = climb(p, 0)
+  if p["failed"] { return nil() }
+  let loc = span(p, name)
+  return { "type": "AssignStmt", "name": name["lexeme"], "op": nil(), "value": value, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn ifStatement(p) {
+  let keyword = pAdvance(p)
+  let condition = beforeBlock(p, fn() { return climb(p, 0) })
+  if p["failed"] { return nil() }
+  let thenBranch = block(p)
+  if p["failed"] { return nil() }
+  let elseBranch = nil()
+  if check(p, "ELSE") {
+    pAdvance(p)
+    elseBranch = block(p)
+    if p["failed"] { return nil() }
+  }
+  let loc = span(p, keyword)
+  return { "type": "IfStmt", "condition": condition, "thenBranch": thenBranch, "elseBranch": elseBranch, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn whileStatement(p) {
+  let keyword = pAdvance(p)
+  let condition = beforeBlock(p, fn() { return climb(p, 0) })
+  if p["failed"] { return nil() }
+  let body = block(p)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "WhileStmt", "condition": condition, "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn forStatement(p) {
+  let keyword = pAdvance(p)
+  let name = consume(p, "IDENTIFIER", "a variable name")
+  if p["failed"] { return nil() }
+  consume(p, "IN", "'in'")
+  if p["failed"] { return nil() }
+  let start = beforeBlock(p, fn() { return climb(p, 0) })
+  if p["failed"] { return nil() }
+  if not check(p, "DOTDOT") {
+    let body = block(p)
+    if p["failed"] { return nil() }
+    let loc = span(p, keyword)
+    return { "type": "ForInStmt", "name": name["lexeme"], "collection": start, "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+  }
+  pAdvance(p)
+  let end = beforeBlock(p, fn() { return climb(p, 0) })
+  if p["failed"] { return nil() }
+  let body = block(p)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "ForStmt", "name": name["lexeme"], "start": start, "end": end, "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn entityStatement(p) {
+  let keyword = pAdvance(p)
+  let name = consume(p, "IDENTIFIER", "an entity name")
+  if p["failed"] { return nil() }
+  consume(p, "LBRACE", "'" + char(123) + "'")
+  if p["failed"] { return nil() }
+  let fields = fieldNames(p)
+  if p["failed"] { return nil() }
+  consume(p, "RBRACE", "'" + char(125) + "'")
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "EntityStmt", "name": name["lexeme"], "fields": fields, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn despawnStatement(p) {
+  let keyword = pAdvance(p)
+  let target = climb(p, 0)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "DespawnStmt", "entity": target, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn eachStatement(p) {
+  let keyword = pAdvance(p)
+  let name = consume(p, "IDENTIFIER", "a variable name")
+  if p["failed"] { return nil() }
+  consume(p, "IN", "'in'")
+  if p["failed"] { return nil() }
+  let typeName = consume(p, "IDENTIFIER", "an entity name")
+  if p["failed"] { return nil() }
+  let whereExpr = nil()
+  if check(p, "WHERE") {
+    pAdvance(p)
+    whereExpr = beforeBlock(p, fn() { return climb(p, 0) })
+    if p["failed"] { return nil() }
+  }
+  let body = block(p)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "EachStmt", "name": name["lexeme"], "typeName": typeName["lexeme"], "where": whereExpr, "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn rewindStatement(p) {
+  let keyword = pAdvance(p)
+  let time = climb(p, 0)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "RewindStmt", "time": time, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn whenStatement(p) {
+  let keyword = pAdvance(p)
+  let left = consume(p, "IDENTIFIER", "a variable name")
+  if p["failed"] { return nil() }
+  consume(p, "IN", "'in'")
+  if p["failed"] { return nil() }
+  let leftType = consume(p, "IDENTIFIER", "an entity name")
+  if p["failed"] { return nil() }
+  consume(p, "TOUCHES", "'touches'")
+  if p["failed"] { return nil() }
+  let right = consume(p, "IDENTIFIER", "a variable name")
+  if p["failed"] { return nil() }
+  consume(p, "IN", "'in'")
+  if p["failed"] { return nil() }
+  let rightType = consume(p, "IDENTIFIER", "an entity name")
+  if p["failed"] { return nil() }
+  let body = block(p)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "WhenStmt", "left": left["lexeme"], "leftType": leftType["lexeme"], "right": right["lexeme"], "rightType": rightType["lexeme"], "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn taskStatement(p) {
+  let keyword = pAdvance(p)
+  let name = consume(p, "IDENTIFIER", "a task name")
+  if p["failed"] { return nil() }
+  let body = block(p)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "TaskStmt", "name": name["lexeme"], "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn waitStatement(p) {
+  let keyword = pAdvance(p)
+  if check(p, "UNTIL") {
+    pAdvance(p)
+    let condition = climb(p, 0)
+    if p["failed"] { return nil() }
+    let loc = span(p, keyword)
+    return { "type": "WaitStmt", "condition": condition, "time": nil(), "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+  }
+  let time = climb(p, 0)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "WaitStmt", "condition": nil(), "time": time, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn everyStatement(p) {
+  let keyword = pAdvance(p)
+  let interval = beforeBlock(p, fn() { return climb(p, 0) })
+  if p["failed"] { return nil() }
+  let body = block(p)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "EveryStmt", "interval": interval, "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn afterStatement(p) {
+  let keyword = pAdvance(p)
+  let delay = beforeBlock(p, fn() { return climb(p, 0) })
+  if p["failed"] { return nil() }
+  let body = block(p)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "AfterStmt", "delay": delay, "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn onStatement(p) {
+  let keyword = pAdvance(p)
+  let kind = consume(p, "IDENTIFIER", "'start', 'tick', 'key', or 'key_up'")
+  if p["failed"] { return nil() }
+  if kind["lexeme"] == "start" {
+    let body = block(p)
+    if p["failed"] { return nil() }
+    let loc = span(p, keyword)
+    return { "type": "OnStmt", "event": "start", "param": nil(), "key": nil(), "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+  }
+  if kind["lexeme"] == "tick" {
+    consume(p, "LPAREN", "'('")
+    if p["failed"] { return nil() }
+    let param = consume(p, "IDENTIFIER", "a parameter name")
+    if p["failed"] { return nil() }
+    consume(p, "RPAREN", "')'")
+    if p["failed"] { return nil() }
+    let body = block(p)
+    if p["failed"] { return nil() }
+    let loc = span(p, keyword)
+    return { "type": "OnStmt", "event": "tick", "param": param["lexeme"], "key": nil(), "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+  }
+  if kind["lexeme"] == "key" or kind["lexeme"] == "key_up" {
+    let keyTok = consume(p, "STRING", "a key name")
+    if p["failed"] { return nil() }
+    let key = decodeString(keyTok["lexeme"])
+    let body = block(p)
+    if p["failed"] { return nil() }
+    let loc = span(p, keyword)
+    return { "type": "OnStmt", "event": kind["lexeme"], "param": nil(), "key": key, "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+  }
+  failParse(p, "E0101", "Expected 'start', 'tick', 'key', or 'key_up'", kind["line"], kind["column"])
+  return nil()
+}
+
+fn useStatement(p) {
+  let keyword = pAdvance(p)
+  let name = consume(p, "IDENTIFIER", "a module name")
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "UseStmt", "name": name["lexeme"], "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn recordStatement(p) {
+  let keyword = pAdvance(p)
+  let name = consume(p, "IDENTIFIER", "a record name")
+  if p["failed"] { return nil() }
+  consume(p, "LBRACE", "'" + char(123) + "'")
+  if p["failed"] { return nil() }
+  let fields = fieldNames(p)
+  if p["failed"] { return nil() }
+  consume(p, "RBRACE", "'" + char(125) + "'")
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "RecordStmt", "name": name["lexeme"], "fields": fields, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn repeatStatement(p) {
+  let keyword = pAdvance(p)
+  let count = beforeBlock(p, fn() { return climb(p, 0) })
+  if p["failed"] { return nil() }
+  let body = block(p)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "RepeatStmt", "count": count, "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn fnStatement(p) {
+  let keyword = pAdvance(p)
+  let name = consume(p, "IDENTIFIER", "a function name")
+  if p["failed"] { return nil() }
+  consume(p, "LPAREN", "'('")
+  if p["failed"] { return nil() }
+  let params = parameterList(p)
+  if p["failed"] { return nil() }
+  consume(p, "RPAREN", "')'")
+  if p["failed"] { return nil() }
+  p["fnDepth"] = p["fnDepth"] + 1
+  let body = block(p)
+  p["fnDepth"] = p["fnDepth"] - 1
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "FnStmt", "name": name["lexeme"], "params": params, "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn returnStatement(p) {
+  let keyword = pAdvance(p)
+  if p["fnDepth"] == 0 {
+    failParse(p, "E0103", "return must be inside a function", keyword["line"], keyword["column"])
+    return nil()
+  }
+  let value = nil()
+  if startsExpression(p) {
+    value = climb(p, 0)
+    if p["failed"] { return nil() }
+  }
+  let loc = span(p, keyword)
+  return { "type": "ReturnStmt", "value": value, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn commandStatement(p) {
+  if not check(p, "IDENTIFIER") { return nil() }
+  let name = pPeek(p)
+  let arity = builtinArity(name["lexeme"])
+  let next = pPeekNext(p)["type"]
+  if arity < 0 or next == "LPAREN" or next == "LBRACKET" or next == "ASSIGN" or next == "PLUS_ASSIGN" or next == "MINUS_ASSIGN" or next == "STAR_ASSIGN" {
+    return nil()
+  }
+  pAdvance(p)
+  let args = []
+  let i = 0
+  while i < arity {
+    push(args, climb(p, 0))
+    if p["failed"] { return nil() }
+    i = i + 1
+  }
+  let callee = {
+    "type": "VariableExpr",
+    "name": name["lexeme"],
+    "line": name["line"],
+    "column": name["column"],
+    "endLine": name["line"],
+    "endColumn": name["column"] + len(name["lexeme"])
+  }
+  let loc = span(p, name)
+  let expression = {
+    "type": "CallExpr",
+    "callee": callee,
+    "args": args,
+    "line": loc["line"],
+    "column": loc["column"],
+    "endLine": loc["endLine"],
+    "endColumn": loc["endColumn"]
+  }
+  return { "type": "ExprStmt", "expression": expression, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn expressionStatement(p) {
+  let expression = climb(p, 0)
+  if p["failed"] { return nil() }
+  let updating = check(p, "ASSIGN") or check(p, "PLUS_ASSIGN") or check(p, "MINUS_ASSIGN") or check(p, "STAR_ASSIGN")
+  if not updating {
+    let loc = spanFrom(expression)
+    return { "type": "ExprStmt", "expression": expression, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+  }
+  let token = pAdvance(p)
+  let op = nil()
+  if token["type"] == "PLUS_ASSIGN" { op = "+" }
+  else {
+    if token["type"] == "MINUS_ASSIGN" { op = "-" }
+    else {
+      if token["type"] == "STAR_ASSIGN" { op = "*" }
+    }
+  }
+  let value = climb(p, 0)
+  if p["failed"] { return nil() }
+  let location = spanFrom(expression)
+  let valueEnd = endOf(value)
+  location["endLine"] = valueEnd["line"]
+  location["endColumn"] = valueEnd["column"]
+  if expression["type"] == "VariableExpr" {
+    return { "type": "AssignStmt", "name": expression["name"], "op": op, "value": value, "line": location["line"], "column": location["column"], "endLine": location["endLine"], "endColumn": location["endColumn"] }
+  }
+  if expression["type"] == "IndexExpr" {
+    return { "type": "IndexAssignStmt", "object": expression["object"], "index": expression["index"], "op": op, "value": value, "line": location["line"], "column": location["column"], "endLine": location["endLine"], "endColumn": location["endColumn"] }
+  }
+  if expression["type"] == "FieldExpr" {
+    return { "type": "FieldAssignStmt", "object": expression["object"], "name": expression["name"], "op": op, "value": value, "nameLine": expression["nameLine"], "nameColumn": expression["nameColumn"], "line": location["line"], "column": location["column"], "endLine": location["endLine"], "endColumn": location["endColumn"] }
+  }
+  failParse(p, "E0108", "Only a name, an index, or a field can be assigned to", expression["line"], expression["column"])
+  return nil()
+}
+
+fn statement(p) {
+  if check(p, "LET") { return letStatement(p) }
+  if check(p, "IF") { return ifStatement(p) }
+  if check(p, "WHILE") { return whileStatement(p) }
+  if check(p, "REPEAT") { return repeatStatement(p) }
+  if check(p, "FOR") { return forStatement(p) }
+  if check(p, "RECORD") { return recordStatement(p) }
+  if check(p, "USE") { return useStatement(p) }
+  if check(p, "ON") { return onStatement(p) }
+  if check(p, "ENTITY") { return entityStatement(p) }
+  if check(p, "DESPAWN") { return despawnStatement(p) }
+  if check(p, "EACH") { return eachStatement(p) }
+  if check(p, "WHEN") { return whenStatement(p) }
+  if check(p, "TASK") { return taskStatement(p) }
+  if check(p, "WAIT") { return waitStatement(p) }
+  if check(p, "EVERY") { return everyStatement(p) }
+  if check(p, "AFTER") { return afterStatement(p) }
+  if check(p, "REWIND") { return rewindStatement(p) }
+  if check(p, "FN") and pPeekNext(p)["type"] == "IDENTIFIER" { return fnStatement(p) }
+  if check(p, "RETURN") { return returnStatement(p) }
+  if check(p, "IDENTIFIER") and pPeekNext(p)["type"] == "ASSIGN" { return assignStatement(p) }
+  let command = commandStatement(p)
+  if command != nil() { return command }
+  return expressionStatement(p)
+}
+
+fn looksLikeRecord(p) {
+  if not check(p, "LBRACE") { return false }
+  let field = tokenAt(p, p["current"] + 1)
+  let colon = tokenAt(p, p["current"] + 2)
+  if field["type"] == "IDENTIFIER" and colon["type"] == "COLON" { return true }
+  return not p["braceIsBlock"] and field["type"] == "RBRACE"
+}
+
+fn finishField(p, object) {
+  pAdvance(p)
+  let name = consume(p, "IDENTIFIER", "a field name")
+  if p["failed"] { return object }
+  return {
+    "type": "FieldExpr",
+    "object": object,
+    "name": name["lexeme"],
+    "nameLine": name["line"],
+    "nameColumn": name["column"],
+    "line": object["line"],
+    "column": object["column"],
+    "endLine": name["line"],
+    "endColumn": name["column"] + len(name["lexeme"])
+  }
+}
+
+fn finishIndex(p, object) {
+  pAdvance(p)
+  let index = climb(p, 0)
+  if p["failed"] { return object }
+  consume(p, "RBRACKET", "']'")
+  if p["failed"] { return object }
+  let end = tokenAt(p, max2(p["current"] - 1, 0))
+  return {
+    "type": "IndexExpr",
+    "object": object,
+    "index": index,
+    "line": object["line"],
+    "column": object["column"],
+    "endLine": end["line"],
+    "endColumn": end["column"] + len(end["lexeme"])
+  }
+}
+
+fn finishCall(p, callee) {
+  pAdvance(p)
+  let args = []
+  if not check(p, "RPAREN") {
+    push(args, climb(p, 0))
+    if p["failed"] { return callee }
+    while check(p, "COMMA") {
+      pAdvance(p)
+      push(args, climb(p, 0))
+      if p["failed"] { return callee }
+    }
+  }
+  consume(p, "RPAREN", "')'")
+  if p["failed"] { return callee }
+  let end = tokenAt(p, max2(p["current"] - 1, 0))
+  return {
+    "type": "CallExpr",
+    "callee": callee,
+    "args": args,
+    "line": callee["line"],
+    "column": callee["column"],
+    "endLine": end["line"],
+    "endColumn": end["column"] + len(end["lexeme"])
+  }
+}
+
+fn recordLiteral(p, nameExpr) {
+  pAdvance(p)
+  let fields = []
+  let seen = {}
+  if not check(p, "RBRACE") {
+    push(fields, fieldInit(p, seen))
+    if p["failed"] { return nameExpr }
+    while check(p, "COMMA") {
+      pAdvance(p)
+      push(fields, fieldInit(p, seen))
+      if p["failed"] { return nameExpr }
+    }
+  }
+  consume(p, "RBRACE", "'" + char(125) + "'")
+  if p["failed"] { return nameExpr }
+  let end = tokenAt(p, max2(p["current"] - 1, 0))
+  return {
+    "type": "RecordExpr",
+    "name": nameExpr["name"],
+    "fields": fields,
+    "line": nameExpr["line"],
+    "column": nameExpr["column"],
+    "endLine": end["line"],
+    "endColumn": end["column"] + len(end["lexeme"])
+  }
+}
+
+fn spawnExpr(p) {
+  let keyword = pAdvance(p)
+  let name = consume(p, "IDENTIFIER", "an entity name")
+  if p["failed"] { return nil() }
+  consume(p, "AT", "'at'")
+  if p["failed"] { return nil() }
+  consume(p, "LPAREN", "'('")
+  if p["failed"] { return nil() }
+  let x = climb(p, 0)
+  if p["failed"] { return nil() }
+  consume(p, "COMMA", "','")
+  if p["failed"] { return nil() }
+  let y = climb(p, 0)
+  if p["failed"] { return nil() }
+  consume(p, "RPAREN", "')'")
+  if p["failed"] { return nil() }
+  consume(p, "LBRACE", "'" + char(123) + "'")
+  if p["failed"] { return nil() }
+  let fields = []
+  let seen = {}
+  if not check(p, "RBRACE") {
+    push(fields, fieldInit(p, seen))
+    if p["failed"] { return nil() }
+    while check(p, "COMMA") {
+      pAdvance(p)
+      push(fields, fieldInit(p, seen))
+      if p["failed"] { return nil() }
+    }
+  }
+  consume(p, "RBRACE", "'" + char(125) + "'")
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "SpawnExpr", "name": name["lexeme"], "x": x, "y": y, "fields": fields, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn mapKey(p) {
+  let token = pPeek(p)
+  if token["type"] == "IDENTIFIER" {
+    pAdvance(p)
+    return { "text": token["lexeme"], "line": token["line"], "column": token["column"] }
+  }
+  if token["type"] == "STRING" {
+    pAdvance(p)
+    return { "text": decodeString(token["lexeme"]), "line": token["line"], "column": token["column"] }
+  }
+  expected(p, "a key")
+  return { "text": "", "line": token["line"], "column": token["column"] }
+}
+
+fn mapEntry(p, seen) {
+  let key = mapKey(p)
+  if p["failed"] { return { "key": "", "value": nil(), "line": 0, "column": 0 } }
+  if hasKey(seen, key["text"]) {
+    failParse(p, "E0109", "Key '" + key["text"] + "' is repeated", key["line"], key["column"])
+    return { "key": key["text"], "value": nil(), "line": key["line"], "column": key["column"] }
+  }
+  seen[key["text"]] = true
+  consume(p, "COLON", "':'")
+  if p["failed"] { return { "key": key["text"], "value": nil(), "line": key["line"], "column": key["column"] } }
+  let value = climb(p, 0)
+  return { "key": key["text"], "value": value, "line": key["line"], "column": key["column"] }
+}
+
+fn mapLiteral(p) {
+  let brace = pAdvance(p)
+  let entries = []
+  let seen = {}
+  if not check(p, "RBRACE") {
+    push(entries, mapEntry(p, seen))
+    if p["failed"] { return nil() }
+    while check(p, "COMMA") {
+      pAdvance(p)
+      push(entries, mapEntry(p, seen))
+      if p["failed"] { return nil() }
+    }
+  }
+  consume(p, "RBRACE", "'" + char(125) + "'")
+  if p["failed"] { return nil() }
+  let loc = span(p, brace)
+  return { "type": "MapExpr", "entries": entries, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn template(p) {
+  let head = pAdvance(p)
+  let parts = [{ "type": "text", "text": head["lexeme"] }]
+  let cont = true
+  while cont {
+    push(parts, { "type": "hole", "expr": climb(p, 0) })
+    if p["failed"] { return nil() }
+    if check(p, "TEMPLATE_MIDDLE") {
+      let mid = pAdvance(p)
+      push(parts, { "type": "text", "text": mid["lexeme"] })
+    } else {
+      let tail = consume(p, "TEMPLATE_TAIL", "the rest of the string")
+      if p["failed"] { return nil() }
+      push(parts, { "type": "text", "text": tail["lexeme"] })
+      cont = false
+    }
+  }
+  let loc = span(p, head)
+  return { "type": "InterpExpr", "parts": parts, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn bindName(p, name, names, token) {
+  if hasKey(names, name) {
+    failParse(p, "E0109", "Name '" + name + "' is bound twice in one pattern", token["line"], token["column"])
+  }
+  names[name] = true
+}
+
+fn patternField(p, names, seen) {
+  let token = consume(p, "IDENTIFIER", "a field name")
+  if p["failed"] { return { "name": "", "pattern": nil() } }
+  if hasKey(seen, token["lexeme"]) {
+    failParse(p, "E0109", "Field '" + token["lexeme"] + "' is repeated", token["line"], token["column"])
+    return { "name": token["lexeme"], "pattern": nil() }
+  }
+  seen[token["lexeme"]] = true
+  consume(p, "COLON", "':'")
+  if p["failed"] { return { "name": token["lexeme"], "pattern": nil() } }
+  return { "name": token["lexeme"], "pattern": pattern(p, names) }
+}
+
+fn vecPattern(p, names) {
+  let token = pAdvance(p)
+  consume(p, "LPAREN", "'('")
+  if p["failed"] { return nil() }
+  let x = pattern(p, names)
+  if p["failed"] { return nil() }
+  consume(p, "COMMA", "','")
+  if p["failed"] { return nil() }
+  let y = pattern(p, names)
+  if p["failed"] { return nil() }
+  consume(p, "RPAREN", "')'")
+  if p["failed"] { return nil() }
+  return { "type": "vec", "x": x, "y": y, "line": token["line"], "column": token["column"] }
+}
+
+fn recordPattern(p, names) {
+  let token = pAdvance(p)
+  consume(p, "LBRACE", "'" + char(123) + "'")
+  if p["failed"] { return nil() }
+  let fields = []
+  let seen = {}
+  if not check(p, "RBRACE") {
+    push(fields, patternField(p, names, seen))
+    if p["failed"] { return nil() }
+    while check(p, "COMMA") {
+      pAdvance(p)
+      push(fields, patternField(p, names, seen))
+      if p["failed"] { return nil() }
+    }
+  }
+  consume(p, "RBRACE", "'" + char(125) + "'")
+  if p["failed"] { return nil() }
+  return { "type": "record", "name": token["lexeme"], "fields": fields, "line": token["line"], "column": token["column"] }
+}
+
+fn pattern(p, names) {
+  if check(p, "MINUS") {
+    let sign = pAdvance(p)
+    let token = consume(p, "NUMBER", "a number")
+    if p["failed"] { return nil() }
+    let lit = parseNumberLiteral(token["lexeme"])
+    if lit["qty"] {
+      return { "type": "quantity", "value": 0 - lit["value"], "unit": lit["unit"], "line": sign["line"], "column": sign["column"] }
+    }
+    return { "type": "literal", "value": 0 - lit["value"], "line": sign["line"], "column": sign["column"] }
+  }
+  let token = pPeek(p)
+  if token["type"] == "NUMBER" {
+    pAdvance(p)
+    let lit = parseNumberLiteral(token["lexeme"])
+    if lit["qty"] {
+      return { "type": "quantity", "value": lit["value"], "unit": lit["unit"], "line": token["line"], "column": token["column"] }
+    }
+    return { "type": "literal", "value": lit["value"], "line": token["line"], "column": token["column"] }
+  }
+  if token["type"] == "STRING" {
+    pAdvance(p)
+    return { "type": "literal", "value": decodeString(token["lexeme"]), "line": token["line"], "column": token["column"] }
+  }
+  if token["type"] == "TRUE" or token["type"] == "FALSE" {
+    pAdvance(p)
+    return { "type": "literal", "value": token["type"] == "TRUE", "line": token["line"], "column": token["column"] }
+  }
+  if token["type"] == "IDENTIFIER" and token["lexeme"] == "_" {
+    pAdvance(p)
+    return { "type": "wild", "line": token["line"], "column": token["column"] }
+  }
+  if token["type"] == "IDENTIFIER" and token["lexeme"] == "vec" and pPeekNext(p)["type"] == "LPAREN" {
+    return vecPattern(p, names)
+  }
+  if token["type"] == "IDENTIFIER" and pPeekNext(p)["type"] == "LBRACE" {
+    return recordPattern(p, names)
+  }
+  if token["type"] == "IDENTIFIER" {
+    pAdvance(p)
+    bindName(p, token["lexeme"], names, token)
+    return { "type": "bind", "name": token["lexeme"], "line": token["line"], "column": token["column"] }
+  }
+  expected(p, "a pattern")
+  return nil()
+}
+
+fn matchExpr(p) {
+  let keyword = pAdvance(p)
+  let scrutinee = climb(p, 0)
+  if p["failed"] { return nil() }
+  consume(p, "LBRACE", "'" + char(123) + "'")
+  if p["failed"] { return nil() }
+  if check(p, "RBRACE") {
+    expected(p, "a pattern")
+    return nil()
+  }
+  let arms = []
+  while not check(p, "RBRACE") and not pAtEnd(p) {
+    let names = {}
+    let pat = pattern(p, names)
+    if p["failed"] { return nil() }
+    let arrow = consume(p, "ARROW", "'=>'")
+    if p["failed"] { return nil() }
+    let body = climb(p, 0)
+    if p["failed"] { return nil() }
+    push(arms, { "pattern": pat, "body": body, "line": arrow["line"], "column": arrow["column"] })
+  }
+  consume(p, "RBRACE", "'" + char(125) + "'")
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "MatchExpr", "scrutinee": scrutinee, "arms": arms, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn arrayLiteral(p) {
+  let bracket = pAdvance(p)
+  let elements = []
+  if not check(p, "RBRACKET") {
+    push(elements, climb(p, 0))
+    if p["failed"] { return nil() }
+    while check(p, "COMMA") {
+      pAdvance(p)
+      push(elements, climb(p, 0))
+      if p["failed"] { return nil() }
+    }
+  }
+  consume(p, "RBRACKET", "']'")
+  if p["failed"] { return nil() }
+  let loc = span(p, bracket)
+  return { "type": "ArrayExpr", "elements": elements, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn functionExpr(p) {
+  let keyword = pAdvance(p)
+  consume(p, "LPAREN", "'('")
+  if p["failed"] { return nil() }
+  let params = parameterList(p)
+  if p["failed"] { return nil() }
+  consume(p, "RPAREN", "')'")
+  if p["failed"] { return nil() }
+  p["fnDepth"] = p["fnDepth"] + 1
+  let body = block(p)
+  p["fnDepth"] = p["fnDepth"] - 1
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "FnExpr", "params": params, "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn atom(p) {
+  let token = pPeek(p)
+  if token["type"] == "NUMBER" {
+    pAdvance(p)
+    let loc = span(p, token)
+    return { "type": "LiteralExpr", "value": numberValue(parseNumberLiteral(token["lexeme"])), "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+  }
+  if token["type"] == "STRING" {
+    pAdvance(p)
+    let loc = span(p, token)
+    return { "type": "LiteralExpr", "value": decodeString(token["lexeme"]), "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+  }
+  if token["type"] == "SPAWN" { return spawnExpr(p) }
+  if token["type"] == "TEMPLATE_HEAD" { return template(p) }
+  if token["type"] == "MATCH" { return matchExpr(p) }
+  if token["type"] == "LBRACE" { return mapLiteral(p) }
+  if token["type"] == "TRUE" or token["type"] == "FALSE" {
+    pAdvance(p)
+    let loc = span(p, token)
+    return { "type": "LiteralExpr", "value": token["type"] == "TRUE", "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+  }
+  if token["type"] == "IDENTIFIER" {
+    pAdvance(p)
+    let loc = span(p, token)
+    return { "type": "VariableExpr", "name": token["lexeme"], "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+  }
+  if token["type"] == "LBRACKET" { return arrayLiteral(p) }
+  if token["type"] == "FN" { return functionExpr(p) }
+  if token["type"] == "LPAREN" {
+    pAdvance(p)
+    let expr = climb(p, 0)
+    if p["failed"] { return nil() }
+    if pPeek(p)["type"] != "RPAREN" {
+      expected(p, "')'")
+      return nil()
+    }
+    pAdvance(p)
+    return expr
+  }
+  expected(p, "an expression")
+  return nil()
+}
+
+fn postfix(p, expr) {
+  let cont = true
+  while cont {
+    if p["failed"] { return expr }
+    if check(p, "LPAREN") { expr = finishCall(p, expr) }
+    else {
+      if check(p, "LBRACKET") { expr = finishIndex(p, expr) }
+      else {
+        if check(p, "DOT") { expr = finishField(p, expr) }
+        else {
+          if expr["type"] == "VariableExpr" and looksLikeRecord(p) { expr = recordLiteral(p, expr) }
+          else { cont = false }
+        }
+      }
+    }
+  }
+  return expr
+}
+
+fn primary(p) {
+  return postfix(p, atom(p))
+}
+
+fn prefix(p, minPrec) {
+  let token = pPeek(p)
+  let unary = unaryInfo(token["type"])
+  if not unary["found"] or unary["precedence"] < minPrec { return primary(p) }
+  pAdvance(p)
+  let operand = climb(p, unary["precedence"])
+  if p["failed"] { return nil() }
+  let end = endOf(operand)
+  return {
+    "type": "UnaryExpr",
+    "operator": unary["operator"],
+    "operand": operand,
+    "line": token["line"],
+    "column": token["column"],
+    "endLine": end["line"],
+    "endColumn": end["column"]
+  }
+}
+
+fn climb(p, minPrec) {
+  let left = prefix(p, minPrec)
+  if p["failed"] { return left }
+  let cont = true
+  while cont {
+    if p["failed"] { return left }
+    let infix = binaryInfo(pPeek(p)["type"])
+    if not infix["found"] or infix["precedence"] < minPrec {
+      cont = false
+    } else {
+      let operator = pAdvance(p)
+      let right = climb(p, infix["precedence"] + 1)
+      if p["failed"] { return left }
+      let end = endOf(right)
+      left = {
+        "type": "BinaryExpr",
+        "operator": infix["operator"],
+        "left": left,
+        "right": right,
+        "line": operator["line"],
+        "column": operator["column"],
+        "endLine": end["line"],
+        "endColumn": end["column"]
+      }
+    }
+  }
+  return left
+}
+
+fn parseProgram(p) {
+  let start = pPeek(p)
+  let body = []
+  while not pAtEnd(p) {
+    push(body, statement(p))
+    if p["failed"] { return nil() }
+  }
+  let loc = span(p, start)
+  return { "type": "Program", "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn parse(source) {
+  let lex = tokenize(source)
+  if not lex["ok"] {
+    return {
+      "ok": false,
+      "code": lex["code"],
+      "detail": lex["detail"],
+      "line": lex["line"],
+      "column": lex["column"]
+    }
+  }
+  let p = {
+    "tokens": lex["tokens"],
+    "current": 0,
+    "fnDepth": 0,
+    "braceIsBlock": false,
+    "failed": false,
+    "code": "",
+    "detail": "",
+    "errLine": 0,
+    "errColumn": 0
+  }
+  let program = parseProgram(p)
+  if p["failed"] {
+    return {
+      "ok": false,
+      "code": p["code"],
+      "detail": p["detail"],
+      "line": p["errLine"],
+      "column": p["errColumn"]
+    }
+  }
+  return { "ok": true, "program": program }
+}
+
+parse
