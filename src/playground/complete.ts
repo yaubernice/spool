@@ -32,6 +32,10 @@ const DOCS: Record<string, string> = {
   vec: 'vec(x, y) — a pair. Both components share a unit.',
   len: 'len(array) or len(string).',
   push: 'push(array, value) — append and return the same array.',
+  pop: 'pop(array) — remove and return the last item.',
+  slice: 'slice(value, start, end) — half-open copy of a string or array.',
+  ord: 'ord(char) — code unit of a one-character string.',
+  char: 'char(n) — one-character string from a code unit 0..65535.',
   random: 'random() — a number from 0 up to but not including 1. Seeded in the studio.',
   print: 'print value — write a line to Output.',
   sin: 'sin(radians).',
@@ -64,7 +68,7 @@ const MEMBERS: Record<string, string[]> = {
 }
 
 const WORDS = [
-  'print', 'len', 'push', 'clamp', 'lerp', 'bounce', 'vec', 'sin', 'cos', 'sqrt', 'abs', 'min', 'max', 'random', 'hsl', 'count',
+  'print', 'len', 'push', 'pop', 'slice', 'ord', 'char', 'clamp', 'lerp', 'bounce', 'vec', 'sin', 'cos', 'sqrt', 'abs', 'min', 'max', 'random', 'hsl', 'count',
 ]
 
 /** Words the REPL can offer. The editor's completion uses the same names. */
@@ -124,7 +128,7 @@ function complete(context: CompletionContext): CompletionResult | null {
   const options: Completion[] = []
   for (const name of KEYWORDS) options.push(item(name, 'keyword', DOCS[name] ?? ''))
   for (const name of Object.keys(MEMBERS)) options.push(item(name, 'namespace', `use ${name}`))
-  for (const name of ['vec', 'len', 'push', 'random', 'print', 'sin', 'cos', 'sqrt', 'abs', 'min', 'max', 'hsl']) {
+  for (const name of ['vec', 'len', 'push', 'pop', 'slice', 'ord', 'char', 'random', 'print', 'sin', 'cos', 'sqrt', 'abs', 'min', 'max', 'hsl']) {
     options.push(item(name, 'function', DOCS[name] ?? ''))
   }
   for (const name of namesIn(context.state.doc.toString())) options.push(item(name.label, name.kind, name.detail))

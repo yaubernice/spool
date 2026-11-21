@@ -38,8 +38,7 @@ import {
 } from './data.ts'
 import { matchPattern } from './match.ts'
 import { vecBuiltins } from './vec.ts'
-import { isArray } from './collections.ts'
-import { collectionBuiltins } from './collections.ts'
+import { collectionBuiltins, indexInRange, isArray } from './collections.ts'
 import { presentError, RuntimeError, SourceError, suggestName } from './errors.ts'
 import { mathBuiltins } from './math.ts'
 import { TICK_DT, ticksFor, type FrameTape, type KeyEvent } from './clock.ts'
@@ -1354,8 +1353,12 @@ class Interpreter {
       }
       return found as Value
     }
+    if (typeof target === 'string') {
+      const atIndex = indexInRange(index, target.length, at, 'string')
+      return target[atIndex]
+    }
     const array = this.expectArray(target, at)
-    const atIndex = this.expectIndex(index, array.items.length, at)
+    const atIndex = indexInRange(index, array.items.length, at, 'array')
     return array.items[atIndex]
   }
 
@@ -1367,24 +1370,17 @@ class Interpreter {
       mapSet(target, index, value)
       return
     }
+    if (typeof target === 'string') {
+      throw new RuntimeError('E0217', 'Cannot assign into a string; strings are immutable', at.line, at.column)
+    }
     const array = this.expectArray(target, at)
-    const atIndex = this.expectIndex(index, array.items.length, at)
+    const atIndex = indexInRange(index, array.items.length, at, 'array')
     array.items[atIndex] = value
   }
 
   private expectArray(value: Value, at: SourceLocation): ArrayValue {
     if (!isArray(value)) {
       throw new RuntimeError('E0213', `Expected an array, but got ${describeValue(value)}`, at.line, at.column)
-    }
-    return value
-  }
-
-  private expectIndex(value: Value, length: number, at: SourceLocation): number {
-    if (typeof value !== 'number' || !Number.isInteger(value)) {
-      throw new RuntimeError('E0214', `Expected a whole number index, but got ${describeValue(value)}`, at.line, at.column)
-    }
-    if (value < 0 || value >= length) {
-      throw new RuntimeError('E0215', `Index ${value} is out of range for an array of length ${length}`, at.line, at.column)
     }
     return value
   }

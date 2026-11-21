@@ -2,7 +2,7 @@ import type { Host } from './host.ts'
 import type { Chunk, Ins } from './bytecode.ts'
 import { Op, SLOT_SPAN } from './bytecode.ts'
 import { compile } from './compile.ts'
-import { isArray } from './collections.ts'
+import { indexInRange, isArray } from './collections.ts'
 import { presentError, RuntimeError, SourceError } from './errors.ts'
 import {
   DEFAULT_MAX_CALL_DEPTH,
@@ -798,8 +798,11 @@ class VM {
       }
       return found as Value
     }
+    if (typeof target === 'string') {
+      return target[indexInRange(index, target.length, ins, 'string')]
+    }
     const array = this.array(target, ins)
-    return array.items[this.index(index, array.items.length, ins)]
+    return array.items[indexInRange(index, array.items.length, ins, 'array')]
   }
 
   private writeIndex(target: Value, index: Value, value: Value, ins: Ins): void {
@@ -810,33 +813,16 @@ class VM {
       mapSet(target, index, value)
       return
     }
+    if (typeof target === 'string') {
+      throw new RuntimeError('E0217', 'Cannot assign into a string; strings are immutable', ins.line, ins.column)
+    }
     const array = this.array(target, ins)
-    array.items[this.index(index, array.items.length, ins)] = value
+    array.items[indexInRange(index, array.items.length, ins, 'array')] = value
   }
 
   private array(value: Value, ins: Ins): { type: 'array'; items: Value[] } {
     if (!isArray(value)) {
       throw new RuntimeError('E0213', `Expected an array, but got ${describeValue(value)}`, ins.line, ins.column)
-    }
-    return value
-  }
-
-  private index(value: Value, length: number, ins: Ins): number {
-    if (typeof value !== 'number' || !Number.isInteger(value)) {
-      throw new RuntimeError(
-        'E0214',
-        `Expected a whole number index, but got ${describeValue(value)}`,
-        ins.line,
-        ins.column,
-      )
-    }
-    if (value < 0 || value >= length) {
-      throw new RuntimeError(
-        'E0215',
-        `Index ${value} is out of range for an array of length ${length}`,
-        ins.line,
-        ins.column,
-      )
     }
     return value
   }

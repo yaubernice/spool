@@ -31,7 +31,10 @@ Keep it small on purpose.
 
 - Numbers, strings, and booleans: `true`, `false`
 - Arrays: `[1, 2, 3]`. Read with `a[i]`. Write with `a[i] = v`. Indexes are whole numbers starting at 0. A negative index is out of range.
-- `len(array)` and `len(string)` return the length. `push(array, value)` adds an item and returns the same array.
+- Strings: read one character with `s[i]` (a string of length 1). Assigning into a string is an error.
+- `len(array)` and `len(string)` return the length. `push(array, value)` adds an item and returns the same array. `pop(array)` removes and returns the last item.
+- `slice(value, start, end)` copies a half-open range from a string or an array. Indexes are whole numbers; `start` and `end` must lie in `0..len(value)`.
+- `ord(s)` is the code unit of a one-character string. `char(n)` builds that character from a whole number `0..65535`.
 - Define a name: `let size = 50`. A second `let` of the same name in one scope is an error.
 - Change a name that already exists, including one outside the current block: `n = n + 1`, `n += 1`, `n -= 1`, `n *= 2`. The same three updates work on `items[i]` and `ball.vel`.
 - Maps: `{ "ada": 10, bea: 12 }`. A bare key is the name, not a lookup. Read and write with `m["ada"]`. Missing keys are an error. `for k in m` visits keys in insertion order.
@@ -82,6 +85,10 @@ Keep it small on purpose.
 | `bounce(v)` | Negate a number, a quantity, or a vec |
 | `len(value)` | Length of an array or a string |
 | `push(array, value)` | Append `value` and return the array |
+| `pop(array)` | Remove and return the last item |
+| `slice(value, start, end)` | Half-open copy of a string or array |
+| `ord(s)` | Code unit of a one-character string |
+| `char(n)` | One-character string from a code unit |
 
 `random` is deterministic when a run is given a seed. The playground seed is the number in the toolbar, and it is part of the share link. The same program and the same seed do the same thing on the tree-walker and on the VM. With no seed, `random` uses `Math.random`.
 
@@ -493,7 +500,6 @@ Snake is 45 lines. Breakout is 41. `undo.spool`, the dodge-and-rewind demo, is 6
 ## What I'd do next
 
 - `else if` without an extra block.
-- Indexing a string, and a few more array operations (`pop`, a slice) without turning the language into a standard library.
 - Resume one debugger step from the statement trace. Game rewind already restores the machine.
 - Step one bytecode instruction, not only one statement.
 - A tree-walker path that does not pause, for people who want the readable engine to be the fast one too.
@@ -552,3 +558,4 @@ Vercel: import the repository, leave the build command as `npm run build`, and s
 - Vitest for tests
 - CodeMirror 6 for the editor, with a dark and a light theme
 - Hand-written lexer, parser, tree-walker, compiler, and stack VM — no parsing libraries
+- Self-hosted lexer, parser, and compiler in `selfhost/`, checked differentially against the TypeScript pipeline
