@@ -1,0 +1,377 @@
+# Self-hosted Spool lexer. Same tokens as the TypeScript lexer:
+# type, lexeme, line, column. On failure returns an error map.
+
+fn keywords() {
+  return {
+    "let": "LET", "if": "IF", "else": "ELSE", "while": "WHILE", "repeat": "REPEAT",
+    "for": "FOR", "in": "IN", "fn": "FN", "return": "RETURN", "and": "AND", "or": "OR",
+    "not": "NOT", "true": "TRUE", "false": "FALSE", "record": "RECORD", "match": "MATCH",
+    "use": "USE", "on": "ON", "entity": "ENTITY", "spawn": "SPAWN", "at": "AT",
+    "despawn": "DESPAWN", "each": "EACH", "where": "WHERE", "when": "WHEN",
+    "touches": "TOUCHES", "task": "TASK", "wait": "WAIT", "until": "UNTIL",
+    "every": "EVERY", "after": "AFTER", "rewind": "REWIND"
+  }
+}
+
+fn isDigit(c) {
+  if c == "" { return false }
+  let n = ord(c)
+  return n >= 48 and n <= 57
+}
+
+fn isAlpha(c) {
+  if c == "" { return false }
+  let n = ord(c)
+  return (n >= 97 and n <= 122) or (n >= 65 and n <= 90) or n == 95
+}
+
+fn isAlphaNumeric(c) {
+  return isAlpha(c) or isDigit(c)
+}
+
+fn atEnd(st) {
+  return st["current"] >= len(st["source"])
+}
+
+fn peek(st) {
+  if atEnd(st) { return "" }
+  return st["source"][st["current"]]
+}
+
+fn peekNext(st) {
+  let i = st["current"] + 1
+  if i >= len(st["source"]) { return "" }
+  return st["source"][i]
+}
+
+fn advance(st) {
+  let c = st["source"][st["current"]]
+  st["current"] = st["current"] + 1
+  if c == "\n" {
+    st["line"] = st["line"] + 1
+    st["column"] = 1
+  } else {
+    if c == char(13) {
+      if peek(st) == "\n" { st["current"] = st["current"] + 1 }
+      st["line"] = st["line"] + 1
+      st["column"] = 1
+    } else {
+      st["column"] = st["column"] + 1
+    }
+  }
+  return c
+}
+
+fn matchChar(st, expected) {
+  if peek(st) != expected { return false }
+  advance(st)
+  return true
+}
+
+fn fail(st, code, detail, line, column) {
+  st["failed"] = true
+  st["code"] = code
+  st["detail"] = detail
+  st["errLine"] = line
+  st["errColumn"] = column
+}
+
+fn addToken(st, type) {
+  let lexeme = slice(st["source"], st["start"], st["current"])
+  push(st["tokens"], { "type": type, "lexeme": lexeme, "line": st["line"], "column": st["tokenColumn"] })
+}
+
+fn addTokenAt(st, type, lexeme, line, column) {
+  push(st["tokens"], { "type": type, "lexeme": lexeme, "line": line, "column": column })
+}
+
+fn skipWhitespaceAndComments(st) {
+  while not atEnd(st) {
+    let c = peek(st)
+    if c == " " or c == "\t" or c == char(13) or c == "\n" {
+      advance(st)
+    } else {
+      if c == "#" {
+        while not atEnd(st) and peek(st) != "\n" and peek(st) != char(13) {
+          advance(st)
+        }
+      } else {
+        return
+      }
+    }
+  }
+}
+
+fn unitSuffix(st) {
+  let rest = slice(st["source"], st["current"], len(st["source"]))
+  if len(rest) >= 4 {
+    if slice(rest, 0, 4) == "px/s" {
+      let next = ""
+      if len(rest) > 4 { next = rest[4] }
+      if not isAlphaNumeric(next) {
+        repeat 4 { advance(st) }
+        return "px/s"
+      }
+    }
+  }
+  if len(rest) >= 2 {
+    if slice(rest, 0, 2) == "px" {
+      let next = ""
+      if len(rest) > 2 { next = rest[2] }
+      if not isAlphaNumeric(next) {
+        advance(st)
+        advance(st)
+        return "px"
+      }
+    }
+  }
+  if len(rest) >= 1 {
+    if rest[0] == "s" {
+      let next = ""
+      if len(rest) > 1 { next = rest[1] }
+      if not isAlphaNumeric(next) {
+        advance(st)
+        return "s"
+      }
+    }
+  }
+  return ""
+}
+
+fn number(st) {
+  while isDigit(peek(st)) { advance(st) }
+  if peek(st) == "." and isDigit(peekNext(st)) {
+    advance(st)
+    while isDigit(peek(st)) { advance(st) }
+  } else {
+    if peek(st) == "." and peekNext(st) != "." {
+      fail(st, "E0001", "Unexpected character '.'", st["line"], st["column"])
+      return
+    }
+  }
+  unitSuffix(st)
+  if st["failed"] { return }
+  addToken(st, "NUMBER")
+}
+
+fn identifier(st) {
+  while isAlphaNumeric(peek(st)) { advance(st) }
+  let lexeme = slice(st["source"], st["start"], st["current"])
+  let table = keywords()
+  let type = "IDENTIFIER"
+  # Maps throw on missing keys, so probe with a loop over known words.
+  for k in table {
+    if k == lexeme { type = table[k] }
+  }
+  addTokenAt(st, type, lexeme, st["line"], st["tokenColumn"])
+  # Fix line field: token line should be the start line, stored when token began.
+  # addTokenAt used st["line"] which may have moved only within an identifier (never).
+  let last = st["tokens"][len(st["tokens"]) - 1]
+  last["line"] = st["line"]
+  last["column"] = st["tokenColumn"]
+}
+
+fn scanHole(st, line, column) {
+  let depth = 1
+  while depth > 0 {
+    skipWhitespaceAndComments(st)
+    if atEnd(st) {
+      fail(st, "E0005", "Unterminated interpolation. Add a closing }", line, column)
+      return
+    }
+    st["start"] = st["current"]
+    st["tokenColumn"] = st["column"]
+    let before = len(st["tokens"])
+    scanToken(st)
+    if st["failed"] { return }
+    let i = before
+    while i < len(st["tokens"]) {
+      let token = st["tokens"][i]
+      if token["type"] == "LBRACE" { depth = depth + 1 }
+      if token["type"] == "RBRACE" { depth = depth - 1 }
+      i = i + 1
+    }
+  }
+  pop(st["tokens"])
+}
+
+fn stringLit(st) {
+  let startLine = st["line"]
+  let startColumn = st["tokenColumn"]
+  let value = ""
+  let templated = false
+  let pieceLine = st["line"]
+  let pieceColumn = st["column"]
+
+  while not atEnd(st) and peek(st) != "\"" and peek(st) != "\n" and peek(st) != char(13) {
+    if peek(st) == char(123) {
+      let kind = "TEMPLATE_HEAD"
+      let useLine = startLine
+      let useColumn = startColumn
+      if templated {
+        kind = "TEMPLATE_MIDDLE"
+        useLine = pieceLine
+        useColumn = pieceColumn
+      }
+      addTokenAt(st, kind, value, useLine, useColumn)
+      templated = true
+      let holeLine = st["line"]
+      let holeColumn = st["column"]
+      advance(st)
+      value = ""
+      scanHole(st, holeLine, holeColumn)
+      if st["failed"] { return }
+      pieceLine = st["line"]
+      pieceColumn = st["column"]
+    } else {
+      if peek(st) == "\\" {
+        let escapeColumn = st["column"]
+        advance(st)
+        let esc = peek(st)
+        if esc == "" or esc == "\n" or esc == char(13) {
+          fail(st, "E0002", "Unterminated string escape", st["line"], escapeColumn)
+          return
+        }
+        advance(st)
+        if esc == "n" { value = value + "\n" }
+        else {
+          if esc == "t" { value = value + "\t" }
+          else {
+            if esc == "\\" { value = value + "\\" }
+            else {
+              if esc == "\"" { value = value + "\"" }
+              else {
+                if esc == char(123) { value = value + char(123) }
+                else {
+                  if esc == char(125) { value = value + char(125) }
+                  else {
+                    fail(st, "E0003", "Unknown string escape '\\" + esc + "'", st["line"], escapeColumn)
+                    return
+                  }
+                }
+              }
+            }
+          }
+        }
+      } else {
+        value = value + advance(st)
+      }
+    }
+  }
+
+  if peek(st) != "\"" {
+    fail(st, "E0004", "Unterminated string. Add a closing quote", startLine, startColumn)
+    return
+  }
+  advance(st)
+  if not templated {
+    let lexeme = slice(st["source"], st["start"], st["current"])
+    addTokenAt(st, "STRING", lexeme, startLine, startColumn)
+    return
+  }
+  addTokenAt(st, "TEMPLATE_TAIL", value, pieceLine, pieceColumn)
+}
+
+fn scanToken(st) {
+  let c = advance(st)
+  if c == "+" {
+    if matchChar(st, "=") { addToken(st, "PLUS_ASSIGN") } else { addToken(st, "PLUS") }
+    return
+  }
+  if c == "-" {
+    if matchChar(st, "=") { addToken(st, "MINUS_ASSIGN") } else { addToken(st, "MINUS") }
+    return
+  }
+  if c == "*" {
+    if matchChar(st, "=") { addToken(st, "STAR_ASSIGN") } else { addToken(st, "STAR") }
+    return
+  }
+  if c == "/" { addToken(st, "SLASH") return }
+  if c == "%" { addToken(st, "PERCENT") return }
+  if c == "(" { addToken(st, "LPAREN") return }
+  if c == ")" { addToken(st, "RPAREN") return }
+  if c == char(123) { addToken(st, "LBRACE") return }
+  if c == char(125) { addToken(st, "RBRACE") return }
+  if c == "[" { addToken(st, "LBRACKET") return }
+  if c == "]" { addToken(st, "RBRACKET") return }
+  if c == "," { addToken(st, "COMMA") return }
+  if c == "." {
+    if matchChar(st, ".") { addToken(st, "DOTDOT") } else { addToken(st, "DOT") }
+    return
+  }
+  if c == ":" { addToken(st, "COLON") return }
+  if c == "|" {
+    if matchChar(st, ">") { addToken(st, "PIPE") return }
+    fail(st, "E0001", "Unexpected character '|'", st["line"], st["column"] - 1)
+    return
+  }
+  if c == "=" {
+    if matchChar(st, ">") { addToken(st, "ARROW") return }
+    if matchChar(st, "=") { addToken(st, "EQ") } else { addToken(st, "ASSIGN") }
+    return
+  }
+  if c == "<" {
+    if matchChar(st, "=") { addToken(st, "LTE") } else { addToken(st, "LT") }
+    return
+  }
+  if c == ">" {
+    if matchChar(st, "=") { addToken(st, "GTE") } else { addToken(st, "GT") }
+    return
+  }
+  if c == "!" {
+    if matchChar(st, "=") { addToken(st, "NOT_EQ") return }
+    fail(st, "E0001", "Unexpected character '!'", st["line"], st["column"] - 1)
+    return
+  }
+  if c == "\"" {
+    stringLit(st)
+    return
+  }
+  if isDigit(c) {
+    number(st)
+    return
+  }
+  if isAlpha(c) {
+    identifier(st)
+    return
+  }
+  fail(st, "E0001", "Unexpected character '" + c + "'", st["line"], st["column"] - 1)
+}
+
+fn tokenize(source) {
+  let st = {
+    "source": source,
+    "start": 0,
+    "current": 0,
+    "line": 1,
+    "column": 1,
+    "tokenColumn": 1,
+    "tokens": [],
+    "failed": false,
+    "code": "",
+    "detail": "",
+    "errLine": 0,
+    "errColumn": 0
+  }
+  while not atEnd(st) {
+    skipWhitespaceAndComments(st)
+    if not atEnd(st) {
+      st["start"] = st["current"]
+      st["tokenColumn"] = st["column"]
+      scanToken(st)
+      if st["failed"] {
+        return {
+          "ok": false,
+          "code": st["code"],
+          "detail": st["detail"],
+          "line": st["errLine"],
+          "column": st["errColumn"]
+        }
+      }
+    }
+  }
+  push(st["tokens"], { "type": "EOF", "lexeme": "", "line": st["line"], "column": st["column"] })
+  return { "ok": true, "tokens": st["tokens"] }
+}
+
+tokenize
