@@ -393,7 +393,10 @@ function run(): void {
     sounds.unlock()
     sounds.play(speaker.cues)
     live = opened
-    if (opened.handlerCount() > 0) startClock(opened, turtle)
+    if (opened.handlerCount() > 0) {
+      startClock(opened, turtle)
+      canvas.focus({ preventScroll: true })
+    }
   } catch (error) {
     strokes = turtle.strokes
     fail(error)

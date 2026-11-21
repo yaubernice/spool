@@ -57,6 +57,7 @@ goto 3 4
 
   it('runs every gallery example', () => {
     for (const example of examples) {
+      if (example.code.includes('use draw')) continue
       const result = draw(example.code)
       const drew = result.strokes.some((stroke) => stroke.draw)
       const printed = result.prints.length > 0

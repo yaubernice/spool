@@ -187,7 +187,19 @@ Runtime guards: a step limit and a call-depth limit, so an infinite loop or a ru
 
 ## Where this is going
 
-`use`, the 60Hz clock, `draw`, `input`, entities, tasks, and `audio` are in the language. `draw` records shapes. The page paints them on the animation frame, after the update. A task waits on the game clock, not the wall clock. `audio` records cues. The page plays them, and rewind stays silent. A running game can restore an earlier frame. Still ahead: gallery games. The playground can already show bytecode and scrub a recorded trace of a drawing. Those stay. A measured benchmark table and a demo GIF belong to a later phase.
+`use`, the 60Hz clock, `draw`, `input`, entities, tasks, and `audio` are in the language. `draw` records shapes. The page paints them on the animation frame, after the update. A task waits on the game clock, not the wall clock. `audio` records cues. The page plays them, and rewind stays silent. A running game can restore an earlier frame. Five games in the gallery are written in Spool. The playground can already show bytecode and scrub a recorded trace of a drawing. Those stay. A measured benchmark table and a demo GIF belong to a later phase.
+
+### Gallery
+
+Click a game name to load it and see the source. The stage takes the keys. **R** rewinds, so none of the games use it.
+
+| Game | Keys |
+| --- | --- |
+| Pong | W and S move your paddle |
+| Snake | Arrow keys |
+| Breakout | Left, right, or the mouse |
+| Asteroids | Left and right turn, up thrusts, space shoots |
+| Flappy | Space flaps |
 
 ### draw and input
 
@@ -261,7 +273,7 @@ While a game is playing, the timeline is a ring of machine snapshots, one every 
 - **Print** and errors share the console under the editor. Every error has a code (`E0203`), the source line, a caret, and a suggestion when a name is one or two edits from a variable you defined.
 - The status bar shows the cursor, token count, AST node count, run time, steps, and the deepest call.
 - **Light** / **Dark** switches the theme. The paper under the turtle stays light in both, so the default pen stays visible. Drag the splitters to resize the editor and the inspector. Below 800px the canvas and the inspector sit above the editor.
-- **Spiral**, **Snowflake**, **Tree**, **Flower**, **Koch**, **Sierpinski**, and **Rainbow** draw. **Primes**, **Sort**, **Fibonacci**, and **FizzBuzz** print, and they use arrays, `for`, string joining, or functions as values.
+- **Pong**, **Snake**, **Breakout**, **Asteroids**, and **Flappy** are games. Click the name to load the source, then play on the stage. **Spiral**, **Snowflake**, **Tree**, **Flower**, **Koch**, **Sierpinski**, and **Rainbow** draw. **Primes**, **Sort**, **Fibonacci**, and **FizzBuzz** print, and they use arrays, `for`, string joining, or functions as values.
 - **Seed** feeds `random`. The program and the seed are stored in the URL hash, so the address is a shareable link.
 
 ## What I'd do next

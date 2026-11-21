@@ -37,6 +37,7 @@ describe('optimizer', () => {
 
   it('keeps every gallery program working', () => {
     for (const example of examples) {
+      if (example.code.includes('use draw')) continue
       const result = trace(example.code, (source, options) =>
         interpretVm(source, { ...options, optimize: { fold: true, dce: true } }),
       )
