@@ -335,6 +335,36 @@ export interface WhenStmt extends SourceLocation {
   body: BlockStmt
 }
 
+/** `task intro { }`. Runs on the game clock and can `wait`. */
+export interface TaskStmt extends SourceLocation {
+  type: 'TaskStmt'
+  name: string
+  body: BlockStmt
+}
+
+/** `wait 1.5s` or `wait until ready`. */
+export interface WaitStmt extends SourceLocation {
+  type: 'WaitStmt'
+  /** Set for `wait until`. Null for a timed wait. */
+  condition: Expr | null
+  /** Set for `wait 1.5s`. Null for `wait until`. */
+  time: Expr | null
+}
+
+/** `every 2s { }`. The body runs after each interval of game time. */
+export interface EveryStmt extends SourceLocation {
+  type: 'EveryStmt'
+  interval: Expr
+  body: BlockStmt
+}
+
+/** `after 3s { }`. The body runs once, when the delay has passed. */
+export interface AfterStmt extends SourceLocation {
+  type: 'AfterStmt'
+  delay: Expr
+  body: BlockStmt
+}
+
 /** `on start`, `on tick(dt)`, `on key "space"`, or `on key_up "space"`. */
 export interface OnStmt extends SourceLocation {
   type: 'OnStmt'
@@ -387,6 +417,10 @@ export type Stmt =
   | DespawnStmt
   | EachStmt
   | WhenStmt
+  | TaskStmt
+  | WaitStmt
+  | EveryStmt
+  | AfterStmt
   | ReturnStmt
   | FnStmt
 

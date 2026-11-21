@@ -33,6 +33,10 @@ import type {
   OnStmt,
   UseStmt,
   WhenStmt,
+  TaskStmt,
+  WaitStmt,
+  EveryStmt,
+  AfterStmt,
   RepeatStmt,
   ReturnStmt,
   SourceLocation,
@@ -182,6 +186,10 @@ class Parser {
     if (this.check('DESPAWN')) return this.despawnStatement()
     if (this.check('EACH')) return this.eachStatement()
     if (this.check('WHEN')) return this.whenStatement()
+    if (this.check('TASK')) return this.taskStatement()
+    if (this.check('WAIT')) return this.waitStatement()
+    if (this.check('EVERY')) return this.everyStatement()
+    if (this.check('AFTER')) return this.afterStatement()
     if (this.check('FN') && this.peekNext().type === 'IDENTIFIER') return this.fnStatement()
     if (this.check('RETURN')) return this.returnStatement()
     if (this.check('IDENTIFIER') && this.peekNext().type === 'ASSIGN') return this.assignStatement()
@@ -296,6 +304,42 @@ class Parser {
       body,
       ...this.span(keyword),
     }
+  }
+
+  /** `task intro { }`. The body starts with the game and can wait. */
+  private taskStatement(): TaskStmt {
+    const keyword = this.advance()
+    const name = this.consume('IDENTIFIER', 'a task name')
+    const body = this.block()
+    return { type: 'TaskStmt', name: name.lexeme, body, ...this.span(keyword) }
+  }
+
+  /** `wait 1.5s` or `wait until ready`. */
+  private waitStatement(): WaitStmt {
+    const keyword = this.advance()
+    if (this.check('UNTIL')) {
+      this.advance()
+      const condition = this.climb(0)
+      return { type: 'WaitStmt', condition, time: null, ...this.span(keyword) }
+    }
+    const time = this.climb(0)
+    return { type: 'WaitStmt', condition: null, time, ...this.span(keyword) }
+  }
+
+  /** `every 2s { }`. */
+  private everyStatement(): EveryStmt {
+    const keyword = this.advance()
+    const interval = this.beforeBlock(() => this.climb(0))
+    const body = this.block()
+    return { type: 'EveryStmt', interval, body, ...this.span(keyword) }
+  }
+
+  /** `after 3s { }`. */
+  private afterStatement(): AfterStmt {
+    const keyword = this.advance()
+    const delay = this.beforeBlock(() => this.climb(0))
+    const body = this.block()
+    return { type: 'AfterStmt', delay, body, ...this.span(keyword) }
   }
 
   /** `on tick(dt) { }`. The body is stored and run by the game clock. */

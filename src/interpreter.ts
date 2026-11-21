@@ -42,7 +42,7 @@ import { isArray } from './collections.ts'
 import { collectionBuiltins } from './collections.ts'
 import { presentError, RuntimeError, SourceError, suggestName } from './errors.ts'
 import { mathBuiltins } from './math.ts'
-import { TICK_DT, type KeyEvent } from './clock.ts'
+import { TICK_DT, ticksFor, type KeyEvent } from './clock.ts'
 import type { Host } from './host.ts'
 import { parse } from './parser.ts'
 import { mulberry32 } from './rng.ts'
@@ -194,8 +194,33 @@ export function interpret(source: string, options: InterpretOptions = {}): Value
 export interface Game {
   hasHandlers(): boolean
   get(name: string): Value
-  /** One fixed step: `on start` the first time, then `on tick`, then the keys in this frame. */
+  /**
+   * One fixed step. `on start` once, then new tasks, then the clock,
+   * then tasks whose wait has elapsed, then `on tick`, then `wait until`,
+   * then keys, then collisions.
+   */
   frame(events: KeyEvent[]): void
+}
+
+/** A task yielded this instead of a pause. The scheduler keeps the generator. */
+interface Suspend {
+  suspend: 'time' | 'until'
+  wake: number
+}
+
+type Step = DebugPause | Suspend
+
+function isSuspend(value: Step): value is Suspend {
+  return 'suspend' in value
+}
+
+interface LiveTask {
+  started: boolean
+  mode: 'idle' | 'time' | 'until' | 'done'
+  wake: number
+  savedEnv: Environment | null
+  gen: Generator<Step, void, void> | null
+  start: () => Generator<Step, void, void>
 }
 
 /** Run the top level, then expose the event handlers to a clock. */
@@ -337,6 +362,10 @@ class Interpreter {
   private readonly rules: TouchRule[] = []
   private readonly world = new World()
   private started = false
+  private readonly tasks: LiveTask[] = []
+  private ticks = 0
+  private inTask = false
+  private taskBaseDepth = 0
 
   constructor(options: InterpretOptions) {
     this.maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS
@@ -353,7 +382,7 @@ class Interpreter {
   }
 
   handlerCount(): number {
-    return this.handlers.length
+    return this.handlers.length + this.tasks.length
   }
 
   read(name: string): Value {
@@ -366,11 +395,21 @@ class Interpreter {
       this.started = true
       this.dispatch('start', null, null)
     }
+    this.drain(this.launchIdle())
+    this.ticks += 1
+    this.drain(this.resumeTasks((task) => task.mode === 'time' && task.wake <= this.ticks))
     this.dispatch('tick', quantity(TICK_DT.value, TICK_DT.unit), null)
+    this.drain(this.resumeTasks((task) => task.mode === 'until'))
     for (const event of events) this.dispatch(event.type, null, event.key)
-    const running = this.resolveTouches()
+    this.drain(this.resolveTouches())
+  }
+
+  private drain(running: Generator<Step, void, void>): void {
     let step = running.next()
-    while (!step.done) step = running.next()
+    while (!step.done) {
+      if (isSuspend(step.value)) throw new RuntimeError('E0901', 'wait is only allowed inside a task', 1, 1)
+      step = running.next()
+    }
   }
 
   private dispatch(event: Handler['event'], arg: Value | null, key: string | null): void {
@@ -389,7 +428,7 @@ class Interpreter {
     }
   }
 
-  private *resolveTouches(): Generator<DebugPause, void, void> {
+  private *resolveTouches(): Generator<Step, void, void> {
     for (const rule of this.rules) {
       for (const [left, right] of touchingPairs(this.world, rule.left, rule.right, rule.at)) {
         if (!left.alive || !right.alive) continue
@@ -408,14 +447,109 @@ class Interpreter {
   }
 
   *run(program: Program): Generator<DebugPause, Value, void> {
+    return yield* this.onlyPauses(this.play(program))
+  }
+
+  private *play(program: Program): Generator<Step, Value, void> {
     for (const statement of program.body) yield* this.execute(statement)
     yield* this.resolveTouches()
+    yield* this.launchIdle()
     this.publish()
     return this.result
   }
 
+  private *onlyPauses(running: Generator<Step, Value, void>): Generator<DebugPause, Value, void> {
+    let step = running.next()
+    while (!step.done) {
+      if (isSuspend(step.value)) throw new RuntimeError('E0901', 'wait is only allowed inside a task', 1, 1)
+      yield step.value
+      step = running.next()
+    }
+    return step.value
+  }
+
+  private *launchIdle(): Generator<Step, void, void> {
+    for (const task of this.tasks) {
+      if (task.started) continue
+      task.started = true
+      yield* this.pump(task)
+    }
+  }
+
+  private *resumeTasks(ready: (task: LiveTask) => boolean): Generator<Step, void, void> {
+    for (const task of this.tasks) {
+      if (!ready(task)) continue
+      yield* this.pump(task)
+    }
+  }
+
+  /** Run a task until it waits or finishes. The generator stays alive across frames. */
+  private *pump(task: LiveTask): Generator<Step, void, void> {
+    if (task.mode === 'done') return
+    const outer = this.env
+    if (!task.gen) task.gen = task.start()
+    else if (task.savedEnv) this.env = task.savedEnv
+    const was = this.inTask
+    this.inTask = true
+    this.taskBaseDepth = this.callDepth
+    try {
+      let step = task.gen.next()
+      while (!step.done) {
+        if (isSuspend(step.value)) {
+          task.mode = step.value.suspend
+          task.wake = step.value.wake
+          task.savedEnv = this.env
+          this.env = outer
+          return
+        }
+        yield step.value
+        step = task.gen.next()
+      }
+      task.mode = 'done'
+      task.gen = null
+    } finally {
+      this.inTask = was
+    }
+  }
+
+  private *taskScript(name: string, closure: Environment, statements: Stmt[]): Generator<Step, void, void> {
+    const outer = this.env
+    this.env = new Environment(closure, name)
+    try {
+      for (const statement of statements) yield* this.execute(statement)
+    } finally {
+      this.env = outer
+    }
+  }
+
+  private *everyScript(closure: Environment, interval: Expr, body: BlockStmt): Generator<Step, void, void> {
+    const outer = this.env
+    this.env = new Environment(closure, 'every')
+    try {
+      for (;;) {
+        const wake = this.ticks + ticksFor(yield* this.evaluate(interval), interval)
+        yield { suspend: 'time', wake }
+        yield* this.executeBlock(body)
+      }
+    } finally {
+      this.env = outer
+    }
+  }
+
+  private *afterScript(closure: Environment, delay: Expr, body: BlockStmt): Generator<Step, void, void> {
+    const outer = this.env
+    this.env = new Environment(closure, 'after')
+    try {
+      const wake = this.ticks + ticksFor(yield* this.evaluate(delay), delay)
+      yield { suspend: 'time', wake }
+      yield* this.executeBlock(body)
+    } finally {
+      this.env = outer
+    }
+  }
+
   /** Run one statement. Each visit counts as a step, including each loop iteration. */
-  private *execute(statement: Stmt): Generator<DebugPause, void, void> {
+  private *execute(statement: Stmt): Generator<Step, void, void> {
     switch (statement.type) {
       case 'LetStmt': {
         yield this.pauseAt(statement)
@@ -558,6 +692,68 @@ class Interpreter {
         })
         return
       }
+      case 'TaskStmt': {
+        yield this.pauseAt(statement)
+        this.guardStep(statement)
+        const closure = this.env
+        const { name, body } = statement
+        this.tasks.push({
+          started: false,
+          mode: 'idle',
+          wake: 0,
+          savedEnv: null,
+          gen: null,
+          start: () => this.taskScript(name, closure, body.statements),
+        })
+        return
+      }
+      case 'EveryStmt': {
+        yield this.pauseAt(statement)
+        this.guardStep(statement)
+        const closure = this.env
+        const { interval, body } = statement
+        this.tasks.push({
+          started: false,
+          mode: 'idle',
+          wake: 0,
+          savedEnv: null,
+          gen: null,
+          start: () => this.everyScript(closure, interval, body),
+        })
+        return
+      }
+      case 'AfterStmt': {
+        yield this.pauseAt(statement)
+        this.guardStep(statement)
+        const closure = this.env
+        const { delay, body } = statement
+        this.tasks.push({
+          started: false,
+          mode: 'idle',
+          wake: 0,
+          savedEnv: null,
+          gen: null,
+          start: () => this.afterScript(closure, delay, body),
+        })
+        return
+      }
+      case 'WaitStmt': {
+        yield this.pauseAt(statement)
+        this.guardStep(statement)
+        if (!this.inTask || this.callDepth !== this.taskBaseDepth) {
+          throw new RuntimeError('E0901', 'wait is only allowed inside a task', statement.line, statement.column)
+        }
+        if (statement.condition) {
+          for (;;) {
+            const ready = this.expectBoolean(yield* this.evaluate(statement.condition), statement.condition)
+            if (ready) return
+            yield { suspend: 'until', wake: 0 }
+          }
+        }
+        const wake = this.ticks + ticksFor(yield* this.evaluate(statement.time as Expr), statement.time as Expr)
+        yield { suspend: 'time', wake }
+        return
+      }
       case 'FieldAssignStmt': {
         yield this.pauseAt(statement)
         this.guardStep(statement)
@@ -689,7 +885,7 @@ class Interpreter {
   }
 
   /** A fresh child environment, so `let` inside a block does not leak out. */
-  private *executeBlock(block: BlockStmt, label = 'block'): Generator<DebugPause, void, void> {
+  private *executeBlock(block: BlockStmt, label = 'block'): Generator<Step, void, void> {
     const previous = this.env
     this.env = new Environment(previous, label)
     try {
@@ -699,7 +895,7 @@ class Interpreter {
     }
   }
 
-  private *evaluate(expr: Expr): Generator<DebugPause, Value, void> {
+  private *evaluate(expr: Expr): Generator<Step, Value, void> {
     switch (expr.type) {
       case 'LiteralExpr':
         return expr.value
@@ -779,7 +975,7 @@ class Interpreter {
     }
   }
 
-  private *evaluateMatch(expr: Extract<Expr, { type: 'MatchExpr' }>): Generator<DebugPause, Value, void> {
+  private *evaluateMatch(expr: Extract<Expr, { type: 'MatchExpr' }>): Generator<Step, Value, void> {
     const subject = yield* this.evaluate(expr.scrutinee)
     for (const arm of expr.arms) {
       const bindings = matchPattern(subject, arm.pattern)
@@ -802,7 +998,7 @@ class Interpreter {
    * `and` and `or` stop early. The right-hand side is not evaluated unless
    * it is needed, so `1 == 0 and (1 / 0)` does not divide by zero.
    */
-  private *evaluateBinary(expr: Extract<Expr, { type: 'BinaryExpr' }>): Generator<DebugPause, Value, void> {
+  private *evaluateBinary(expr: Extract<Expr, { type: 'BinaryExpr' }>): Generator<Step, Value, void> {
     if (expr.operator === 'and' || expr.operator === 'or') {
       const left = this.expectBoolean(yield* this.evaluate(expr.left), expr.left)
       if (expr.operator === 'and') {
@@ -855,7 +1051,7 @@ class Interpreter {
   }
 
   /** `value |> f` calls `f(value)`. `value |> f(a)` calls `f(value, a)`. */
-  private *pipe(expr: Extract<Expr, { type: 'BinaryExpr' }>): Generator<DebugPause, Value, void> {
+  private *pipe(expr: Extract<Expr, { type: 'BinaryExpr' }>): Generator<Step, Value, void> {
     const left = yield* this.evaluate(expr.left)
     if (expr.right.type === 'CallExpr') {
       const callee = yield* this.evaluate(expr.right.callee)
@@ -867,7 +1063,7 @@ class Interpreter {
     return yield* this.invoke(callee, [left], expr, expr.right)
   }
 
-  private *call(expr: CallExpr): Generator<DebugPause, Value, void> {
+  private *call(expr: CallExpr): Generator<Step, Value, void> {
     const callee = yield* this.evaluate(expr.callee)
     const args: Value[] = []
     for (const arg of expr.args) args.push(yield* this.evaluate(arg))
@@ -879,7 +1075,7 @@ class Interpreter {
     args: Value[],
     at: SourceLocation,
     labelExpr: Expr,
-  ): Generator<DebugPause, Value, void> {
+  ): Generator<Step, Value, void> {
     if (isBuiltin(callee)) return callee.call(args, at)
     if (!isFunction(callee) || callee.body === null) {
       const label = labelExpr.type === 'VariableExpr' ? `'${labelExpr.name}'` : 'That value'

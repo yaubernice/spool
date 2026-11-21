@@ -141,6 +141,50 @@ class Compiler {
         this.emit(Op.TOUCH, statement)
         return
       }
+      case 'TaskStmt':
+        this.emit(Op.PAUSE, statement)
+        this.closure(statement.name, [], statement.body, statement)
+        this.emit(Op.TASK, statement)
+        return
+      case 'WaitStmt': {
+        this.emit(Op.PAUSE, statement)
+        if (statement.condition) {
+          const check = this.chunk.code.length
+          this.expression(statement.condition)
+          const skip = this.emit(Op.JUMP_IF_TRUE, statement.condition)
+          this.emit(Op.WAIT_UNTIL, statement)
+          this.emit(Op.JUMP, statement, check)
+          this.patch(skip)
+          return
+        }
+        this.expression(statement.time as Expr)
+        this.emit(Op.WAIT_TIME, statement)
+        return
+      }
+      case 'EveryStmt': {
+        this.emit(Op.PAUSE, statement)
+        const child = new Compiler('every', [])
+        const loop = child.chunk.code.length
+        child.expression(statement.interval)
+        child.emit(Op.WAIT_TIME, statement.interval)
+        child.block(statement.body)
+        child.emit(Op.JUMP, statement, loop)
+        this.chunk.functions.push(child.chunk)
+        this.emit(Op.CLOSURE, statement, this.chunk.functions.length - 1)
+        this.emit(Op.TASK, statement)
+        return
+      }
+      case 'AfterStmt': {
+        this.emit(Op.PAUSE, statement)
+        const child = new Compiler('after', [])
+        child.expression(statement.delay)
+        child.emit(Op.WAIT_TIME, statement.delay)
+        child.block(statement.body)
+        this.chunk.functions.push(child.chunk)
+        this.emit(Op.CLOSURE, statement, this.chunk.functions.length - 1)
+        this.emit(Op.TASK, statement)
+        return
+      }
       case 'FieldAssignStmt':
         this.emit(Op.PAUSE, statement)
         this.expression(statement.object)

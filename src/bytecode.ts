@@ -66,6 +66,9 @@ export const enum Op {
   ENTITIES,
   ALIVE,
   TOUCH,
+  WAIT_TIME,
+  WAIT_UNTIL,
+  TASK,
 }
 
 export interface Ins {
@@ -148,6 +151,9 @@ const OP_NAME: Record<number, string> = {
   [Op.ENTITIES]: 'ENTITIES',
   [Op.ALIVE]: 'ALIVE',
   [Op.TOUCH]: 'TOUCH',
+  [Op.WAIT_TIME]: 'WAIT_TIME',
+  [Op.WAIT_UNTIL]: 'WAIT_UNTIL',
+  [Op.TASK]: 'TASK',
 }
 
 export function isJump(op: Op): boolean {

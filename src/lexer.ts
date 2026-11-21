@@ -39,6 +39,11 @@ export type TokenType =
   | 'WHERE'
   | 'WHEN'
   | 'TOUCHES'
+  | 'TASK'
+  | 'WAIT'
+  | 'UNTIL'
+  | 'EVERY'
+  | 'AFTER'
   | 'PLUS'
   | 'MINUS'
   | 'STAR'
@@ -105,6 +110,11 @@ const KEYWORDS: Readonly<Record<string, TokenType>> = {
   where: 'WHERE',
   when: 'WHEN',
   touches: 'TOUCHES',
+  task: 'TASK',
+  wait: 'WAIT',
+  until: 'UNTIL',
+  every: 'EVERY',
+  after: 'AFTER',
 }
 
 /** Turn source text into tokens. Throws LexError on bad input. */

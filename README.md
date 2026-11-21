@@ -184,7 +184,7 @@ Runtime guards: a step limit and a call-depth limit, so an infinite loop or a ru
 
 ## Where this is going
 
-`use`, the 60Hz clock, `draw`, `input`, and entities are in the language. `draw` records shapes. The page paints them on the animation frame, after the update. Still ahead: tasks that `wait`, audio, and rewind. The playground can already show bytecode and scrub a recorded trace of a drawing. Those stay. A measured benchmark table and a demo GIF belong to a later phase.
+`use`, the 60Hz clock, `draw`, `input`, entities, and tasks are in the language. `draw` records shapes. The page paints them on the animation frame, after the update. A task waits on the game clock, not the wall clock. Still ahead: audio and rewind. The playground can already show bytecode and scrub a recorded trace of a drawing. Those stay. A measured benchmark table and a demo GIF belong to a later phase.
 
 ### draw and input
 
@@ -209,6 +209,22 @@ when ball in Ball touches paddle in Paddle { despawn ball }
 ```
 
 `x` and `y` are the center, set by `at`. A field named `r` is a circle. `w` and `h` are a rectangle. `each ball in Ball where ball.x > 100px { }` walks the ones that match. `when` runs after the program and again after every tick, once for each pair that is touching. The same type is paired once. `despawn` removes an entity. The Entities tab lists what is alive.
+
+### Tasks
+
+```
+let score = 0
+task flash {
+  wait 1.5s
+  draw.background("white")
+}
+every 2s { score = score + 1 }
+after 3s { score = 0 }
+```
+
+A `task` starts when the game starts, in source order, and runs until it reaches `wait`. `wait 1.5s` suspends that task for 90 ticks. `wait until ready` is checked again after each `on tick`. `every 2s` runs its body once the interval has passed, then again after each further interval. `after 3s` runs once. The time is game time: one tick is `1/60 s`, so the same frames always wake the same tasks. `wait` outside a task is an error, and the time has to be a quantity in seconds.
+
+One frame does this, in order: `on start` the first time, then any task that has not started, then the clock advances by one tick, then tasks whose `wait` time has arrived, then `on tick`, then `wait until`, then key events, then `when`. Tasks also take their first steps at the end of the script, before the first frame, so a task with no `wait` has already finished by then.
 
 `rect`, `circle`, `line`, and `text` take coordinates in pixels. A plain number is also fine. `sprite` draws an emoji, or a tiny picture when the string has a newline (`.` and space are empty). `camera` shifts the picture. `input.key` is true while the key is held, `input.mouse` is a px vec, and `input.click` is true for the frame the button goes down. The origin is the top left, and y grows downward.
 

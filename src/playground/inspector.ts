@@ -362,6 +362,16 @@ function statementNode(statement: Stmt): TreeNode {
       return make('EachStmt', statement.name, statement, [exprNode(statement.where), blockNode(statement.body, 'body')])
     case 'WhenStmt':
       return make('WhenStmt', `${statement.leftType} ${statement.rightType}`, statement, [blockNode(statement.body, 'body')])
+    case 'TaskStmt':
+      return make('TaskStmt', statement.name, statement, [blockNode(statement.body, 'body')])
+    case 'WaitStmt':
+      return make('WaitStmt', statement.condition ? 'until' : 'time', statement, [
+        exprNode((statement.condition ?? statement.time) as Expr),
+      ])
+    case 'EveryStmt':
+      return make('EveryStmt', '', statement, [exprNode(statement.interval), blockNode(statement.body, 'body')])
+    case 'AfterStmt':
+      return make('AfterStmt', '', statement, [exprNode(statement.delay), blockNode(statement.body, 'body')])
     case 'FieldAssignStmt':
       return make('FieldAssignStmt', statement.name, statement, [exprNode(statement.object), exprNode(statement.value)])
     case 'IndexAssignStmt':
@@ -486,7 +496,14 @@ function countStmt(statement: Stmt): number {
       return 1
     case 'OnStmt':
     case 'WhenStmt':
+    case 'TaskStmt':
       return 1 + countBlock(statement.body)
+    case 'WaitStmt':
+      return 1 + countExpr((statement.condition ?? statement.time) as Expr)
+    case 'EveryStmt':
+      return 1 + countExpr(statement.interval) + countBlock(statement.body)
+    case 'AfterStmt':
+      return 1 + countExpr(statement.delay) + countBlock(statement.body)
     case 'EntityStmt':
       return 1
     case 'DespawnStmt':

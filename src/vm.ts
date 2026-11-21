@@ -28,6 +28,8 @@ import {
   isEntity,
   isEntityType,
   isMap,
+  type EntityTypeValue,
+  type RecordTypeValue,
   makeRecord,
   mapGet,
   mapSet,
@@ -43,7 +45,7 @@ import { textValue } from './interpreter.ts'
 import { vecBuiltins } from './vec.ts'
 import { optimize } from './optimize.ts'
 import { parse } from './parser.ts'
-import { TICK_DT, type KeyEvent } from './clock.ts'
+import { TICK_DT, ticksFor, type KeyEvent } from './clock.ts'
 import { decodeMachine, encodeMachine, type VmImage } from './image.ts'
 import { touchingPairs, World } from './world.ts'
 import { mulberry32, type SeededRandom } from './rng.ts'
@@ -167,6 +169,16 @@ interface CallFrame {
   parentEnv: Environment
   /** False for the top-level chunk. Falling off the end is not a call return. */
   call: boolean
+  /** True for a task, every, or after. `wait` is legal only in that frame. */
+  task?: boolean
+}
+
+interface SleepingTask {
+  frame: CallFrame
+  env: Environment
+  call: StackFrame
+  mode: 'time' | 'until'
+  wake: number
 }
 
 class VM {
@@ -189,10 +201,14 @@ class VM {
   private restored = false
   private started = false
   private readonly handlers: VmHandler[] = []
-
-  constructor(chunk: Chunk, options: InterpretOptions) {
   private readonly rules: { left: string; right: string; fn: FunctionValue; at: Ins }[] = []
   private readonly world = new World()
+  private readonly tasks: { fn: FunctionValue; started: boolean; at: Ins }[] = []
+  private readonly sleeping: SleepingTask[] = []
+  private ticks = 0
+  private halted = false
+
+  constructor(chunk: Chunk, options: InterpretOptions) {
     this.root = chunk
     this.maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS
     this.maxCallDepth = options.maxCallDepth ?? DEFAULT_MAX_CALL_DEPTH
@@ -217,9 +233,10 @@ class VM {
     try {
       if (!this.restored) this.frames.push({ chunk: this.root, ip: 0, parentEnv: this.env, call: false })
       this.drive()
+      this.resolveTouches()
+      this.launchIdle()
       this.publish()
       return this.result
-      this.resolveTouches()
     } catch (error) {
       this.publish()
       throw error
@@ -230,9 +247,10 @@ class VM {
     try {
       this.frames.push({ chunk: this.root, ip: 0, parentEnv: this.env, call: false })
       yield* this.loop()
+      this.resolveTouches()
+      this.launchIdle()
       this.publish()
       this.endPause = this.capture(0, 0, -1, '')
-      this.resolveTouches()
       return this.result
     } catch (error) {
       this.publish()
@@ -260,7 +278,8 @@ class VM {
   }
 
   private drive(): void {
-    while (this.frames.length > 0) {
+    this.halted = false
+    while (this.frames.length > 0 && !this.halted) {
       const frame = this.frames[this.frames.length - 1]
       if (frame.ip >= frame.chunk.code.length) {
         this.leave(null)
@@ -497,6 +516,7 @@ class VM {
         throw new RuntimeError('E0224', 'No pattern matched', ins.line, ins.column)
       case Op.USE_MODULE:
         this.stack.push(bindModule(this.modules, chunk.names[ins.arg] ?? '', ins))
+        return
       case Op.ENTITY_TYPE: {
         const count = this.number(this.pop(ins), ins)
         const fields: string[] = []
@@ -554,7 +574,22 @@ class VM {
         this.rules.push({ left, right, fn, at: ins })
         return
       }
+      case Op.WAIT_TIME: {
+        const wake = this.ticks + ticksFor(this.pop(ins), ins)
+        this.park(ins, 'time', wake)
         return
+      }
+      case Op.WAIT_UNTIL:
+        this.park(ins, 'until', 0)
+        return
+      case Op.TASK: {
+        const fn = this.pop(ins)
+        if (!isFn(fn) || fn.chunk === null) {
+          throw new RuntimeError('E0204', 'That value is not a function', ins.line, ins.column)
+        }
+        this.tasks.push({ fn, started: false, at: ins })
+        return
+      }
       case Op.REGISTER: {
         const key = this.pop(ins)
         const fn = this.pop(ins)
@@ -573,7 +608,7 @@ class VM {
     }
   }
 
-  private call(ins: Ins): void {
+  private call(ins: Ins, task = false): void {
     const args: Value[] = []
     for (let i = 0; i < ins.arg; i++) args.push(this.pop(ins))
     args.reverse()
@@ -608,7 +643,7 @@ class VM {
     this.callDepth++
     this.peakDepth = Math.max(this.peakDepth, this.callDepth)
     this.calls.push({ name: callee.name, line: ins.line, column: ins.column })
-    this.frames.push({ chunk: callee.chunk, ip: 0, parentEnv: this.env, call: true })
+    this.frames.push({ chunk: callee.chunk, ip: 0, parentEnv: this.env, call: true, task })
     this.env = env
   }
 
@@ -799,7 +834,7 @@ class VM {
   }
 
   handlerCount(): number {
-    return this.handlers.length
+    return this.handlers.length + this.tasks.length
   }
 
   read(name: string): Value {
@@ -816,11 +851,60 @@ class VM {
       this.started = true
       this.dispatch('start', null, null)
     }
+    this.launchIdle()
+    this.ticks += 1
+    this.resumeDue('time')
     this.dispatch('tick', quantity(TICK_DT.value, TICK_DT.unit), null)
+    this.resumeDue('until')
     for (const event of events) this.dispatch(event.type, null, event.key)
+    this.resolveTouches()
   }
 
-    this.resolveTouches()
+  private launchIdle(): void {
+    for (const task of this.tasks) {
+      if (task.started) continue
+      task.started = true
+      this.stack.push(task.fn)
+      this.call({ op: Op.CALL, arg: 0, line: task.at.line, column: task.at.column }, true)
+      this.drive()
+      if (!this.halted) this.stack.pop()
+    }
+  }
+
+  private resumeDue(mode: SleepingTask['mode']): void {
+    const due: SleepingTask[] = []
+    const later: SleepingTask[] = []
+    for (const task of this.sleeping) {
+      if (task.mode === mode && (mode === 'until' || task.wake <= this.ticks)) due.push(task)
+      else later.push(task)
+    }
+    this.sleeping.length = 0
+    this.sleeping.push(...later)
+    for (const task of due) {
+      this.frames.push(task.frame)
+      this.env = task.env
+      this.calls.push(task.call)
+      this.callDepth++
+      this.peakDepth = Math.max(this.peakDepth, this.callDepth)
+      this.drive()
+      if (!this.halted) this.stack.pop()
+    }
+  }
+
+  /** Pop the task frame and keep it until the game clock wakes it. */
+  private park(ins: Ins, mode: SleepingTask['mode'], wake: number): void {
+    const frame = this.frames[this.frames.length - 1]
+    if (!frame?.task) {
+      throw new RuntimeError('E0901', 'wait is only allowed inside a task', ins.line, ins.column)
+    }
+    this.frames.pop()
+    const env = this.env
+    this.env = frame.parentEnv
+    this.callDepth--
+    const call = this.calls.pop()
+    if (!call) throw new Error('task is missing a call frame')
+    this.sleeping.push({ frame, env, call, mode, wake })
+    this.halted = true
   }
 
   private resolveTouches(): void {
@@ -835,6 +919,8 @@ class VM {
         this.stack.pop()
       }
     }
+  }
+
   private dispatch(event: VmHandler['event'], arg: Value | null, key: string | null): void {
     for (const handler of this.handlers) {
       if (handler.event !== event) continue
@@ -861,8 +947,6 @@ class VM {
       globals: this.globals,
       frames: this.frames,
       calls: this.calls,
-    })
-  }
       world: this.world.entities,
     })
   }
@@ -896,6 +980,8 @@ class VM {
     this.peakDepth = image.peakDepth
     this.result = decoded.result
     this.world.replace(decoded.entities)
+    this.restored = true
+  }
 
   private pop(ins?: Ins): Value {
     const value = this.stack.pop()
