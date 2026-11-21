@@ -73,6 +73,61 @@ export function renderTree(host: HTMLElement, program: Program | null): void {
   host.append(renderNode(toTree(program)))
 }
 
+/** Render a plain-data AST (from the Spool parser or normalizeAst). */
+export function renderPlainTree(host: HTMLElement, program: unknown): void {
+  host.replaceChildren()
+  if (!program || typeof program !== 'object') {
+    host.append(note('No tree yet.'))
+    return
+  }
+  host.append(renderNode(plainToTree(program)))
+}
+
+function plainToTree(node: unknown): TreeNode {
+  if (node === null || typeof node !== 'object') {
+    return { label: String(node), detail: '', line: 1, column: 1, endLine: 1, endColumn: 1, children: [] }
+  }
+  if (Array.isArray(node)) {
+    return {
+      label: `list(${node.length})`,
+      detail: '',
+      line: 1,
+      column: 1,
+      endLine: 1,
+      endColumn: 1,
+      children: node.map((item, index) => {
+        const child = plainToTree(item)
+        return { ...child, label: `[${index}] ${child.label}` }
+      }),
+    }
+  }
+  const record = node as Record<string, unknown>
+  const type = typeof record.type === 'string' ? record.type : 'node'
+  const line = typeof record.line === 'number' ? record.line : 1
+  const column = typeof record.column === 'number' ? record.column : 1
+  const endLine = typeof record.endLine === 'number' ? record.endLine : line
+  const endColumn = typeof record.endColumn === 'number' ? record.endColumn : column
+  const children: TreeNode[] = []
+  for (const [key, value] of Object.entries(record)) {
+    if (key === 'type' || key === 'line' || key === 'column' || key === 'endLine' || key === 'endColumn') continue
+    if (value !== null && typeof value === 'object') {
+      const child = plainToTree(value)
+      children.push({ ...child, label: `${key}: ${child.label}` })
+    } else if (value !== undefined) {
+      children.push({
+        label: `${key}: ${JSON.stringify(value)}`,
+        detail: '',
+        line,
+        column,
+        endLine,
+        endColumn,
+        children: [],
+      })
+    }
+  }
+  return { label: type, detail: '', line, column, endLine, endColumn, children }
+}
+
 /** Mark the smallest node that contains the cursor. */
 export function markTreeCursor(host: HTMLElement, source: string, line: number, column: number): void {
   const pos = offsetAt(source, line, column)

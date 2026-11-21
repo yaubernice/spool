@@ -50,6 +50,7 @@ import {
   renderOutput,
   renderScopes,
   renderStack,
+  renderPlainTree,
   renderTokens,
   renderTree,
   spanFromNode,
@@ -118,6 +119,89 @@ const panes = {
   stack: document.querySelector<HTMLElement>('[data-pane="stack"]')!,
   bytecode: document.querySelector<HTMLElement>('[data-pane="bytecode"]')!,
   bench: document.querySelector<HTMLElement>('[data-pane="bench"]')!,
+}
+const tokensView = document.querySelector<HTMLElement>('#tokens-view')!
+const astView = document.querySelector<HTMLElement>('#ast-view')!
+
+type LexEngine = 'typescript' | 'spool'
+type AstEngine = 'typescript' | 'spool'
+let lexEngine: LexEngine = (localStorage.getItem('spool-lex-engine') as LexEngine | null) ?? 'typescript'
+let astEngine: AstEngine = (localStorage.getItem('spool-ast-engine') as AstEngine | null) ?? 'typescript'
+let lexRequestId = 0
+let parseRequestId = 0
+let lastLexTsMs: number | null = null
+let lastLexSpoolMs: number | null = null
+let lastParseTsMs: number | null = null
+let lastParseSpoolMs: number | null = null
+let plainAst: unknown = null
+const lexWorker = new Worker(new URL('./playground/lex.worker.ts', import.meta.url), { type: 'module' })
+lexWorker.onmessage = (event: MessageEvent<import('./playground/lex.worker.ts').LexWorkerResponse>) => {
+  const data = event.data
+  if (data.id !== lexRequestId) return
+  if (data.engine === 'typescript') lastLexTsMs = data.ms
+  else lastLexSpoolMs = data.ms
+  showLexTiming()
+  if (data.engine !== lexEngine) return
+  if (data.error) {
+    banner.hidden = false
+    banner.textContent = data.error.message
+    renderTokens(tokensView, inspection.tokens)
+    return
+  }
+  const tokens = (data.tokens ?? []).filter((token) => token.type !== 'EOF') as import('./lexer.ts').Token[]
+  inspection = { ...inspection, tokens, banner: null }
+  renderTokens(tokensView, tokens)
+  document.querySelector('#stat-tokens')!.textContent = `${tokens.length} tokens`
+  if (astEngine === 'typescript' || !inspection.banner) {
+    banner.hidden = true
+    banner.textContent = ''
+  }
+}
+
+const parseWorker = new Worker(new URL('./playground/parse.worker.ts', import.meta.url), { type: 'module' })
+parseWorker.onmessage = (event: MessageEvent<import('./playground/parse.worker.ts').ParseWorkerResponse>) => {
+  const data = event.data
+  if (data.id !== parseRequestId) return
+  if (data.engine === 'typescript') lastParseTsMs = data.ms
+  else lastParseSpoolMs = data.ms
+  showParseTiming()
+  if (data.engine !== astEngine) return
+  if (data.error) {
+    banner.hidden = false
+    banner.textContent = data.error.message
+    return
+  }
+  plainAst = data.program ?? null
+  if (astEngine === 'spool') {
+    renderPlainTree(astView, plainAst)
+    markTreeCursor(astView, editor.getCode(), cursorLine, cursorColumn)
+  }
+  banner.hidden = true
+  banner.textContent = ''
+}
+
+for (const button of document.querySelectorAll<HTMLButtonElement>('[data-lex-engine]')) {
+  button.classList.toggle('active', button.dataset.lexEngine === lexEngine)
+  button.addEventListener('click', () => {
+    lexEngine = (button.dataset.lexEngine as LexEngine) ?? 'typescript'
+    localStorage.setItem('spool-lex-engine', lexEngine)
+    for (const item of document.querySelectorAll<HTMLButtonElement>('[data-lex-engine]')) {
+      item.classList.toggle('active', item.dataset.lexEngine === lexEngine)
+    }
+    refreshInspector(editor.getCode())
+  })
+}
+
+for (const button of document.querySelectorAll<HTMLButtonElement>('[data-ast-engine]')) {
+  button.classList.toggle('active', button.dataset.astEngine === astEngine)
+  button.addEventListener('click', () => {
+    astEngine = (button.dataset.astEngine as AstEngine) ?? 'typescript'
+    localStorage.setItem('spool-ast-engine', astEngine)
+    for (const item of document.querySelectorAll<HTMLButtonElement>('[data-ast-engine]')) {
+      item.classList.toggle('active', item.dataset.astEngine === astEngine)
+    }
+    refreshInspector(editor.getCode())
+  })
 }
 
 const editor = createEditor(editorHost, '', onEdit, run, onCursor)
@@ -486,7 +570,7 @@ function onCursor(line: number, column: number, selected = 0): void {
   pipkin.lookCaret(line, column)
   document.querySelector('#stat-pos')!.textContent = `${line}:${column}`
   document.querySelector('#stat-sel')!.textContent = selected > 0 ? `${selected} selected` : 'no selection'
-  markTreeCursor(panes.ast, editor.getCode(), line, column)
+  markTreeCursor(astView, editor.getCode(), line, column)
 }
 
 function run(): void {
@@ -912,21 +996,59 @@ function paintTurtle(turtle: Turtle): void {
 }
 
 function refreshInspector(code: string): void {
+  const started = performance.now()
   inspection = inspectSource(code, inspection)
-  renderTokens(panes.tokens, inspection.tokens)
-  renderTree(panes.ast, inspection.program)
+  lastLexTsMs = performance.now() - started
+  lastParseTsMs = performance.now() - started
   showBytecode(inspection.program)
-  markTreeCursor(panes.ast, code, cursorLine, cursorColumn)
-  const tokenCount = inspection.tokens?.length ?? 0
-  document.querySelector('#stat-tokens')!.textContent = `${tokenCount} tokens`
   document.querySelector('#stat-nodes')!.textContent = `${countNodes(inspection.program)} nodes`
-  if (inspection.banner) {
-    banner.hidden = false
-    banner.textContent = inspection.banner
+  if (astEngine === 'typescript') {
+    renderTree(astView, inspection.program)
+    markTreeCursor(astView, code, cursorLine, cursorColumn)
   } else {
-    banner.hidden = true
-    banner.textContent = ''
+    astView.replaceChildren()
+    const note = document.createElement('p')
+    note.className = 'pane-note'
+    note.textContent = 'Parsing with Spool…'
+    astView.append(note)
   }
+  if (lexEngine === 'typescript') {
+    renderTokens(tokensView, inspection.tokens)
+    const tokenCount = inspection.tokens?.length ?? 0
+    document.querySelector('#stat-tokens')!.textContent = `${tokenCount} tokens`
+    if (inspection.banner && astEngine === 'typescript') {
+      banner.hidden = false
+      banner.textContent = inspection.banner
+    } else if (!inspection.banner) {
+      banner.hidden = true
+      banner.textContent = ''
+    }
+  } else {
+    renderTokens(tokensView, inspection.tokens)
+    document.querySelector('#stat-tokens')!.textContent = '… tokens'
+  }
+  showLexTiming()
+  showParseTiming()
+  lexRequestId += 1
+  parseRequestId += 1
+  const lexId = lexRequestId
+  const parseId = parseRequestId
+  lexWorker.postMessage({ id: lexId, source: code, engine: 'spool' })
+  lexWorker.postMessage({ id: lexId, source: code, engine: 'typescript' })
+  parseWorker.postMessage({ id: parseId, source: code, engine: 'spool' })
+  parseWorker.postMessage({ id: parseId, source: code, engine: 'typescript' })
+}
+
+function showLexTiming(): void {
+  const ts = lastLexTsMs === null ? '—' : `${lastLexTsMs.toFixed(1)}ms`
+  const spool = lastLexSpoolMs === null ? '—' : `${lastLexSpoolMs.toFixed(1)}ms`
+  document.querySelector('#stat-lex')!.textContent = `lex TS ${ts} · Spool ${spool}`
+}
+
+function showParseTiming(): void {
+  const ts = lastParseTsMs === null ? '—' : `${lastParseTsMs.toFixed(1)}ms`
+  const spool = lastParseSpoolMs === null ? '—' : `${lastParseSpoolMs.toFixed(1)}ms`
+  document.querySelector('#stat-parse')!.textContent = `parse TS ${ts} · Spool ${spool}`
 }
 
 function selectTab(name: string): void {

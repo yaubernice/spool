@@ -157,8 +157,22 @@ on key "space" { if energy &gt; 40 { rewind 2s } }</pre>
           </div>
           <div id="output-log"></div>
         </div>
-        <div class="tab-pane" data-pane="tokens" hidden></div>
-        <div class="tab-pane" data-pane="ast" hidden></div>
+        <div class="tab-pane" data-pane="tokens" hidden>
+          <div class="pane-tools">
+            <span class="pane-note">Tokens powered by:</span>
+            <button type="button" data-lex-engine="typescript" class="active">TypeScript</button>
+            <button type="button" data-lex-engine="spool">Spool</button>
+          </div>
+          <div id="tokens-view"></div>
+        </div>
+        <div class="tab-pane" data-pane="ast" hidden>
+          <div class="pane-tools">
+            <span class="pane-note">AST powered by:</span>
+            <button type="button" data-ast-engine="typescript" class="active">TypeScript</button>
+            <button type="button" data-ast-engine="spool">Spool</button>
+          </div>
+          <div id="ast-view"></div>
+        </div>
         <div class="tab-pane" data-pane="bytecode" hidden><div id="bytecode-view"></div></div>
         <div class="tab-pane" data-pane="entities" hidden></div>
         <div class="tab-pane" data-pane="variables" hidden></div>
@@ -185,7 +199,9 @@ on key "space" { if energy &gt; 40 { rewind 2s } }</pre>
     <span id="stat-sel">no selection</span>
     <span id="stat-lang">Spool</span>
     <span id="stat-tokens">0 tokens</span>
+    <span id="stat-lex">lex —</span>
     <span id="stat-nodes">0 nodes</span>
+    <span id="stat-parse">parse —</span>
     <span id="stat-ms">—</span>
     <span id="stat-frame">—</span>
     <span id="stat-entities">0 entities</span>
