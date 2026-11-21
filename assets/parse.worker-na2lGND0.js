@@ -1,0 +1,1622 @@
+(function(){function e(e,t){return{type:`quantity`,value:e,unit:{px:t.px,s:t.s}}}function t(e){return e===`px`?{px:1,s:0}:e===`s`?{px:0,s:1}:e===`px/s`?{px:1,s:-1}:{px:0,s:0}}function n(e){return typeof e==`object`&&!!e&&e.type===`quantity`}function r(e){return typeof e==`object`&&!!e&&e.type===`vec`}function i(e){return typeof e==`object`&&!!e&&e.type===`map`}function a(e){return typeof e==`object`&&!!e&&e.type===`record`}function o(e){return typeof e==`object`&&!!e&&e.type===`entity`}function s(e){return typeof e==`object`&&!!e&&e.type===`entityType`}function c(e){return typeof e==`object`&&!!e&&e.type===`module`}function l(e){return typeof e==`object`&&!!e&&e.type===`recordType`}function u(e){return typeof e==`object`&&!!e&&e.type===`array`}function d(e,t){return e.px===t.px&&e.s===t.s}function f(e){return typeof e==`number`?{px:0,s:0}:e.unit}function p(e){let t=[{name:`px`,exp:e.px},{name:`s`,exp:e.s}],n=[],r=[];for(let e of t){if(e.exp===0)continue;let t=Math.abs(e.exp)===1?e.name:`${e.name}^${Math.abs(e.exp)}`;e.exp>0?n.push(t):r.push(t)}if(n.length===0&&r.length===0)return``;let i=n.length===0?`1`:n.join(`*`);return r.length===0?i:`${i}/${r.join(`*`)}`}function m(e){return`${ee(e.value)}${p(e.unit)}`}function h(e){let t=p(e);return t===``?`a number`:t}function g(e){if(e===null)return`nothing`;if(typeof e==`number`)return`a number`;if(typeof e==`string`)return`a string`;if(typeof e==`boolean`)return`a boolean`;if(n(e))return`a ${h(e.unit)} quantity`;if(r(e))return`a vec`;if(i(e))return`a map`;if(a(e))return`a ${e.name}`;if(l(e))return`record ${e.name}`;if(c(e))return`module ${e.name}`;if(o(e))return`entity ${e.name}`;if(s(e))return`entity type ${e.name}`;if(u(e))return`an array`;if(typeof e==`object`&&e&&`type`in e){let t=e;if(t.type===`function`)return t.name&&t.name!==`(anonymous)`?`the function ${t.name}`:`a function`;if(t.type===`builtin`)return`the built-in ${t.name??`function`}`}return`a value`}function ee(e){return Object.is(e,-0)?`0`:String(e)}function _(e){return typeof e==`number`?e:e.value}function v(e){return typeof e==`number`||n(e)}function y(t,n){return n.px===0&&n.s===0?t:e(t,n)}function te(e,t){return{px:e.px+t.px,s:e.s+t.s}}function ne(e,t){return{px:e.px-t.px,s:e.s-t.s}}function re(e,t,n){return{status:`fail`,code:`E0216`,detail:`Units do not match for '${e}' (${h(f(t))} and ${h(f(n))})`}}function b(e,t){return{status:`fail`,code:e,detail:t}}function x(e,t,n){if(r(t)||r(n))return ie(e,t,n);if(!v(t)||!v(n))return{status:`skip`};if(e===`+`||e===`-`)return d(f(t),f(n))?{status:`value`,value:y(e===`+`?_(t)+_(n):_(t)-_(n),f(t))}:re(e,t,n);if(e===`*`)return{status:`value`,value:y(_(t)*_(n),te(f(t),f(n)))};if(e===`/`)return _(n)===0?b(`E0203`,`Division by zero`):{status:`value`,value:y(_(t)/_(n),ne(f(t),f(n)))};if(!d(f(t),f(n)))return re(e,t,n);let i=_(t),a=_(n);return{status:`value`,value:e===`<`?i<a:e===`>`?i>a:e===`<=`?i<=a:i>=a}}function ie(e,t,n){if(e===`<`||e===`>`||e===`<=`||e===`>=`)return{status:`skip`};if(e===`+`||e===`-`){if(!r(t)||!r(n))return b(`E0219`,`'${e}' expects two vecs`);let i=x(e,t.x,n.x);if(i.status!==`value`)return i;let a=x(e,t.y,n.y);return a.status===`value`?{status:`value`,value:{type:`vec`,x:i.value,y:a.value}}:a}let i=r(t)?t:r(n)?n:null,a=i===t?n:t;return!i||!v(a)?b(`E0218`,`'${e}' expects a vec and a scalar`):e===`*`&&!r(t)&&r(n)?S(n,a,!1):e===`*`?S(i,a,!1):e===`/`&&r(t)&&v(n)?S(t,n,!0):b(`E0218`,`'${e}' expects a vec and a scalar`)}function S(e,t,n){let r=ae(e.x,t,n);if(r.status!==`value`)return r;let i=ae(e.y,t,n);return i.status===`value`?{status:`value`,value:{type:`vec`,x:r.value,y:i.value}}:i}function ae(e,t,n){return n&&_(t)===0?b(`E0203`,`Division by zero`):{status:`value`,value:y(n?_(e)/_(t):_(e)*_(t),n?ne(f(e),f(t)):te(f(e),f(t)))}}function C(t){if(typeof t==`number`)return{status:`value`,value:-t};if(n(t))return{status:`value`,value:e(-t.value,t.unit)};if(r(t)){let e=C(t.x),n=C(t.y);return e.status!==`value`||n.status!==`value`?{status:`skip`}:{status:`value`,value:{type:`vec`,x:e.value,y:n.value}}}return{status:`skip`}}function w(e,t){if(typeof e==`number`&&typeof t==`number`)return e===t;if(n(e)||n(t))return!n(e)||!n(t)?!1:e.value===t.value&&d(e.unit,t.unit);if(r(e)||r(t)){if(!r(e)||!r(t))return!1;let n=w(e.x,t.x),i=w(e.y,t.y);return n===null||i===null?!1:n&&i}return null}function oe(e){return typeof e==`number`?{px:0,s:0}:n(e)?e.unit:null}function se(e){return u(e)?[...e.items]:typeof e==`string`?[...e]:i(e)?e.entries.map(e=>e.key):null}function ce(e,t){let n=e.entries.find(e=>e.key===t);return n?n.value:void 0}function le(e,t,n){let r=e.entries.find(e=>e.key===t);r?r.value=n:e.entries.push({key:t,value:n})}function ue(e,t){return r(e)?t!==`x`&&t!==`y`?b(`E0222`,`vec has no field '${t}'`):{status:`value`,value:t===`x`?e.x:e.y}:a(e)?Object.prototype.hasOwnProperty.call(e.fields,t)?{status:`value`,value:e.fields[t]}:b(`E0222`,`Record ${e.name} has no field '${t}'`):c(e)?Object.prototype.hasOwnProperty.call(e.fields,t)?{status:`value`,value:e.fields[t]}:b(`E0602`,`Module '${e.name}' has no '${t}'`):o(e)?e.alive?Object.prototype.hasOwnProperty.call(e.fields,t)?{status:`value`,value:e.fields[t]}:b(`E0222`,`Entity ${e.name} has no field '${t}'`):b(`E0806`,`Entity ${e.name}#${e.id} is already gone`):b(`E0223`,`Expected a record or a vec, but got ${g(e)}`)}function de(e,t,n){if(r(e)){if(t!==`x`&&t!==`y`)return b(`E0222`,`vec has no field '${t}'`);let r=oe(n);if(!r)return b(`E0217`,`vec components must be numbers or quantities, but got ${g(n)}`);let i=t===`x`?e.y:e.x;return d(r,f(i))?(t===`x`?e.x=n:e.y=n,{status:`ok`}):b(`E0217`,`vec components must share a unit (${h(r)} and ${h(f(i))})`)}return a(e)?Object.prototype.hasOwnProperty.call(e.fields,t)?(e.fields[t]=n,{status:`ok`}):b(`E0222`,`Record ${e.name} has no field '${t}'`):c(e)?b(`E0603`,`Cannot assign to module '${e.name}'`):o(e)?e.alive?Object.prototype.hasOwnProperty.call(e.fields,t)?(e.fields[t]=n,{status:`ok`}):b(`E0222`,`Entity ${e.name} has no field '${t}'`):b(`E0806`,`Entity ${e.name}#${e.id} is already gone`):b(`E0223`,`Expected a record or a vec, but got ${g(e)}`)}function fe(e,t){if(!l(e))return b(`E0227`,`Expected a record type, but got ${g(e)}`);let n=new Map(t.map(e=>[e.name,e.value]));if(n.size!==t.length){let e=/* @__PURE__ */ new Set;for(let n of t){if(e.has(n.name))return b(`E0222`,`Field '${n.name}' is repeated`);e.add(n.name)}}for(let t of n.keys())if(!e.fields.includes(t))return b(`E0222`,`Record ${e.name} has no field '${t}'`);let r={};for(let t of e.fields){if(!n.has(t))return b(`E0222`,`Record ${e.name} is missing field '${t}'`);r[t]=n.get(t)}return{status:`value`,value:{type:`record`,name:e.name,fields:r}}}let T=/* @__PURE__ */ function(e){return e[e.CONST=1]=`CONST`,e[e.LOAD=2]=`LOAD`,e[e.STORE=3]=`STORE`,e[e.DEFINE=4]=`DEFINE`,e[e.ADD=5]=`ADD`,e[e.SUB=6]=`SUB`,e[e.MUL=7]=`MUL`,e[e.DIV=8]=`DIV`,e[e.MOD=9]=`MOD`,e[e.NEG=10]=`NEG`,e[e.NOT=11]=`NOT`,e[e.EQ=12]=`EQ`,e[e.NE=13]=`NE`,e[e.LT=14]=`LT`,e[e.GT=15]=`GT`,e[e.LE=16]=`LE`,e[e.GE=17]=`GE`,e[e.JUMP=18]=`JUMP`,e[e.JUMP_IF_FALSE=19]=`JUMP_IF_FALSE`,e[e.JUMP_IF_TRUE=20]=`JUMP_IF_TRUE`,e[e.CALL=21]=`CALL`,e[e.RETURN=22]=`RETURN`,e[e.CLOSURE=23]=`CLOSURE`,e[e.ARRAY=24]=`ARRAY`,e[e.INDEX=25]=`INDEX`,e[e.SET_INDEX=26]=`SET_INDEX`,e[e.PUSH_SCOPE=27]=`PUSH_SCOPE`,e[e.POP_SCOPE=28]=`POP_SCOPE`,e[e.PAUSE=29]=`PAUSE`,e[e.CHECK_COUNT=30]=`CHECK_COUNT`,e[e.CHECK_INT=31]=`CHECK_INT`,e[e.CHECK_NUM=32]=`CHECK_NUM`,e[e.CHECK_BOOL=33]=`CHECK_BOOL`,e[e.SET_RESULT=34]=`SET_RESULT`,e[e.STR=35]=`STR`,e[e.ITEMS=36]=`ITEMS`,e[e.LEN=37]=`LEN`,e[e.GET_FIELD=38]=`GET_FIELD`,e[e.SET_FIELD=39]=`SET_FIELD`,e[e.MAKE_MAP=40]=`MAKE_MAP`,e[e.RECORD_TYPE=41]=`RECORD_TYPE`,e[e.MAKE_RECORD=42]=`MAKE_RECORD`,e[e.TRY_PATTERN=43]=`TRY_PATTERN`,e[e.MATCH_FAIL=44]=`MATCH_FAIL`,e[e.USE_MODULE=45]=`USE_MODULE`,e[e.REGISTER=46]=`REGISTER`,e[e.ENTITY_TYPE=47]=`ENTITY_TYPE`,e[e.SPAWN=48]=`SPAWN`,e[e.DESPAWN=49]=`DESPAWN`,e[e.ENTITIES=50]=`ENTITIES`,e[e.ALIVE=51]=`ALIVE`,e[e.TOUCH=52]=`TOUCH`,e[e.WAIT_TIME=53]=`WAIT_TIME`,e[e.WAIT_UNTIL=54]=`WAIT_UNTIL`,e[e.TASK=55]=`TASK`,e[e.LOCAL_GET=56]=`LOCAL_GET`,e[e.LOCAL_SET=57]=`LOCAL_SET`,e[e.LOCAL_DEF=58]=`LOCAL_DEF`,e[e.DUP=59]=`DUP`,e[e.DUP2=60]=`DUP2`,e[e.REWIND=61]=`REWIND`,e}({});function pe(e,t=[]){return{name:e,params:t,code:[],constants:[],names:[],functions:[],labels:[],patterns:[]}}let E=1024;function D(e){return e===18||e===19||e===20}function me(e){let t=new he(`<program>`,[]);return t.statements(e.body),t.chunk}var he=class e{chunk;scopes;constructor(e,t,n=[]){this.chunk=pe(e,t),this.scopes=[...n,{names:/* @__PURE__ */ new Map,next:0}];for(let e of t)this.reserve(e)}statements(e){for(let t of e)this.statement(t)}statement(t){switch(t.type){case`LetStmt`:this.emit(T.PAUSE,t),this.expression(t.value),this.defineName(t,t.name);return;case`AssignStmt`:this.emit(T.PAUSE,t),t.op&&this.loadName(t,t.name),this.expression(t.value),this.applyUpdate(t.op,t),this.storeName(t,t.name);return;case`IndexAssignStmt`:this.emit(T.PAUSE,t),this.expression(t.object),this.expression(t.index),t.op&&(this.emit(T.DUP2,t),this.emit(T.INDEX,t)),this.expression(t.value),this.applyUpdate(t.op,t),this.emit(T.SET_INDEX,t);return;case`ExprStmt`:this.emit(T.PAUSE,t),this.expression(t.expression),this.emit(T.SET_RESULT,t);return;case`IfStmt`:{this.emit(T.PAUSE,t),this.expression(t.condition);let e=this.emit(T.JUMP_IF_FALSE,t.condition);if(this.block(t.thenBranch),!t.elseBranch){this.patch(e);return}let n=this.emit(T.JUMP,t);this.patch(e),this.block(t.elseBranch),this.patch(n);return}case`WhileStmt`:{let e=this.chunk.code.length;this.emit(T.PAUSE,t),this.expression(t.condition);let n=this.emit(T.JUMP_IF_FALSE,t.condition);this.block(t.body),this.emit(T.JUMP,t,e),this.patch(n);return}case`RepeatStmt`:this.repeat(t);return;case`ForStmt`:this.forLoop(t);return;case`ForInStmt`:this.forIn(t);return;case`RecordStmt`:this.emit(T.PAUSE,t);for(let e of t.fields)this.emit(T.CONST,t,this.constant(e));this.emit(T.CONST,t,this.constant(t.fields.length)),this.emit(T.RECORD_TYPE,t,this.name(t.name)),this.defineName(t,t.name);return;case`UseStmt`:this.emit(T.PAUSE,t),this.emit(T.USE_MODULE,t,this.name(t.name)),this.defineName(t,t.name);return;case`OnStmt`:{this.emit(T.PAUSE,t);let e=t.param?[{name:t.param,line:t.line,column:t.column}]:[];this.closure(t.event,e,t.body,t),this.emit(T.CONST,t,this.constant(t.key??``));let n=t.event===`start`?0:t.event===`tick`?1:t.event===`key`?2:3;this.emit(T.REGISTER,t,n);return}case`EntityStmt`:this.emit(T.PAUSE,t);for(let e of t.fields)this.emit(T.CONST,t,this.constant(e));this.emit(T.CONST,t,this.constant(t.fields.length)),this.emit(T.ENTITY_TYPE,t,this.name(t.name)),this.defineName(t,t.name);return;case`DespawnStmt`:this.emit(T.PAUSE,t),this.expression(t.entity),this.emit(T.DESPAWN,t);return;case`EachStmt`:this.each(t);return;case`WhenStmt`:{this.emit(T.PAUSE,t),this.emit(T.CONST,t,this.constant(t.leftType)),this.emit(T.CONST,t,this.constant(t.rightType));let e=[{name:t.left,line:t.line,column:t.column},{name:t.right,line:t.line,column:t.column}];this.closure(`touches`,e,t.body,t),this.emit(T.TOUCH,t);return}case`TaskStmt`:this.emit(T.PAUSE,t),this.closure(t.name,[],t.body,t),this.emit(T.TASK,t);return;case`WaitStmt`:if(this.emit(T.PAUSE,t),t.condition){let e=this.chunk.code.length;this.expression(t.condition);let n=this.emit(T.JUMP_IF_TRUE,t.condition);this.emit(T.WAIT_UNTIL,t),this.emit(T.JUMP,t,e),this.patch(n);return}this.expression(t.time),this.emit(T.WAIT_TIME,t);return;case`EveryStmt`:{this.emit(T.PAUSE,t);let n=new e(`every`,[],this.scopes),r=n.chunk.code.length;n.expression(t.interval),n.emit(T.WAIT_TIME,t.interval),n.block(t.body),n.emit(T.JUMP,t,r),this.chunk.functions.push(n.chunk),this.emit(T.CLOSURE,t,this.chunk.functions.length-1),this.emit(T.TASK,t);return}case`AfterStmt`:{this.emit(T.PAUSE,t);let n=new e(`after`,[],this.scopes);n.expression(t.delay),n.emit(T.WAIT_TIME,t.delay),n.block(t.body),this.chunk.functions.push(n.chunk),this.emit(T.CLOSURE,t,this.chunk.functions.length-1),this.emit(T.TASK,t);return}case`FieldAssignStmt`:this.emit(T.PAUSE,t),this.expression(t.object),t.op&&(this.emit(T.DUP,t),this.emit(T.GET_FIELD,{line:t.nameLine,column:t.nameColumn},this.name(t.name))),this.expression(t.value),this.applyUpdate(t.op,t),this.emit(T.SET_FIELD,{line:t.nameLine,column:t.nameColumn},this.name(t.name));return;case`RewindStmt`:this.emit(T.PAUSE,t),this.expression(t.time),this.emit(T.REWIND,t);return;case`FnStmt`:{this.emit(T.PAUSE,t);let e=this.reserve(t.name);this.closure(t.name,t.params,t.body,t),this.defineSlot(t,t.name,e);return}case`ReturnStmt`:this.emit(T.PAUSE,t),t.value?this.expression(t.value):this.emit(T.CONST,t,this.constant(null)),this.emit(T.RETURN,t);return}}repeat(e){this.emit(T.PAUSE,e),this.expression(e.count),this.emit(T.CHECK_COUNT,e.count),this.pushScope(e,`repeat`),this.defineName(e,`$n`),this.emit(T.CONST,e,this.constant(0)),this.defineName(e,`$i`);let t=this.emit(T.JUMP,e),n=this.chunk.code.length;this.block(e.body),this.loadName(e,`$i`),this.emit(T.CONST,e,this.constant(1)),this.emit(T.ADD,e),this.storeName(e,`$i`),this.patch(t),this.loadName(e,`$i`),this.loadName(e,`$n`),this.emit(T.LT,e);let r=this.emit(T.JUMP_IF_FALSE,e);this.loadName(e,`$i`),this.emit(T.CONST,e,this.constant(0)),this.emit(T.EQ,e);let i=this.emit(T.JUMP_IF_TRUE,e);this.emit(T.PAUSE,e),this.patch(i),this.emit(T.JUMP,e,n),this.patch(r),this.popScope(e)}forLoop(e){this.pushScope(e,`for`),this.emit(T.CONST,e,this.constant(0)),this.defineName(e,`$ready`),this.emit(T.CONST,e,this.constant(0)),this.defineName(e,`$i`);let t=this.chunk.code.length;this.emit(T.PAUSE,e),this.loadName(e,`$ready`),this.emit(T.CONST,e,this.constant(0)),this.emit(T.EQ,e);let n=this.emit(T.JUMP_IF_FALSE,e);this.emit(T.CONST,e,this.constant(1)),this.storeName(e,`$ready`),this.expression(e.start),this.emit(T.CHECK_INT,e.start),this.storeName(e,`$i`),this.expression(e.end),this.emit(T.CHECK_INT,e.end),this.defineName(e,`$end`),this.patch(n),this.loadName(e,`$i`),this.loadName(e,`$end`),this.emit(T.LT,e);let r=this.emit(T.JUMP_IF_FALSE,e);this.pushScope(e,`for`),this.loadName(e,`$i`),this.defineName(e,e.name),this.block(e.body),this.popScope(e),this.loadName(e,`$i`),this.emit(T.CONST,e,this.constant(1)),this.emit(T.ADD,e),this.storeName(e,`$i`),this.emit(T.JUMP,e,t),this.patch(r),this.popScope(e)}forIn(e){this.pushScope(e,`for`),this.emit(T.CONST,e,this.constant(0)),this.defineName(e,`$ready`),this.emit(T.CONST,e,this.constant(0)),this.defineName(e,`$i`);let t=this.chunk.code.length;this.emit(T.PAUSE,e),this.loadName(e,`$ready`),this.emit(T.CONST,e,this.constant(0)),this.emit(T.EQ,e);let n=this.emit(T.JUMP_IF_FALSE,e);this.emit(T.CONST,e,this.constant(1)),this.storeName(e,`$ready`),this.expression(e.collection),this.emit(T.ITEMS,e.collection),this.defineName(e,`$items`),this.loadName(e,`$items`),this.emit(T.LEN,e),this.defineName(e,`$end`),this.patch(n),this.loadName(e,`$i`),this.loadName(e,`$end`),this.emit(T.LT,e);let r=this.emit(T.JUMP_IF_FALSE,e);this.pushScope(e,`for`),this.loadName(e,`$items`),this.loadName(e,`$i`),this.emit(T.INDEX,e),this.defineName(e,e.name),this.block(e.body),this.popScope(e),this.loadName(e,`$i`),this.emit(T.CONST,e,this.constant(1)),this.emit(T.ADD,e),this.storeName(e,`$i`),this.emit(T.JUMP,e,t),this.patch(r),this.popScope(e)}applyUpdate(e,t){e===`+`?this.emit(T.ADD,t):e===`-`?this.emit(T.SUB,t):e===`*`&&this.emit(T.MUL,t)}each(e){this.pushScope(e,`each`),this.emit(T.CONST,e,this.constant(0)),this.defineName(e,`$ready`),this.emit(T.CONST,e,this.constant(0)),this.defineName(e,`$i`);let t=this.chunk.code.length;this.emit(T.PAUSE,e),this.loadName(e,`$ready`),this.emit(T.CONST,e,this.constant(0)),this.emit(T.EQ,e);let n=this.emit(T.JUMP_IF_FALSE,e);this.emit(T.CONST,e,this.constant(1)),this.storeName(e,`$ready`),this.loadName(e,e.typeName),this.emit(T.ENTITIES,e),this.defineName(e,`$items`),this.loadName(e,`$items`),this.emit(T.LEN,e),this.defineName(e,`$end`),this.patch(n),this.loadName(e,`$i`),this.loadName(e,`$end`),this.emit(T.LT,e);let r=this.emit(T.JUMP_IF_FALSE,e);this.pushScope(e,`each`),this.loadName(e,`$items`),this.loadName(e,`$i`),this.emit(T.INDEX,e),this.defineName(e,e.name),this.loadName(e,e.name),this.emit(T.ALIVE,e);let i=this.emit(T.JUMP_IF_FALSE,e);if(e.where){this.expression(e.where);let t=this.emit(T.JUMP_IF_FALSE,e.where);this.block(e.body),this.patch(t)}else this.block(e.body);this.patch(i),this.popScope(e),this.loadName(e,`$i`),this.emit(T.CONST,e,this.constant(1)),this.emit(T.ADD,e),this.storeName(e,`$i`),this.emit(T.JUMP,e,t),this.patch(r),this.popScope(e)}block(e){this.pushScope(e,`block`),this.statements(e.statements),this.popScope(e)}closure(t,n,r,i){let a=new e(t,n.map(e=>e.name),this.scopes);a.statements(r.statements);let o=this.chunk.functions.length;this.chunk.functions.push(a.chunk),this.emit(T.CLOSURE,i,o)}expression(e){switch(e.type){case`LiteralExpr`:this.emit(T.CONST,e,this.constant(e.value));return;case`VariableExpr`:this.loadName(e,e.name);return;case`SpawnExpr`:this.expression(e.x),this.expression(e.y),this.loadName(e,e.name);for(let t of e.fields)this.emit(T.CONST,t,this.constant(t.name)),this.expression(t.value);this.emit(T.SPAWN,e,e.fields.length);return;case`ArrayExpr`:for(let t of e.elements)this.expression(t);this.emit(T.ARRAY,e,e.elements.length);return;case`IndexExpr`:this.expression(e.object),this.expression(e.index),this.emit(T.INDEX,e);return;case`FnExpr`:this.closure(`(anonymous)`,e.params,e.body,e);return;case`FieldExpr`:this.expression(e.object),this.emit(T.GET_FIELD,{line:e.nameLine,column:e.nameColumn},this.name(e.name));return;case`MapExpr`:for(let t of e.entries)this.emit(T.CONST,t,this.constant(t.key)),this.expression(t.value);this.emit(T.MAKE_MAP,e,e.entries.length);return;case`RecordExpr`:this.loadName(e,e.name);for(let t of e.fields)this.emit(T.CONST,t,this.constant(t.name)),this.expression(t.value);this.emit(T.MAKE_RECORD,e,e.fields.length);return;case`InterpExpr`:{let t=0;for(let n of e.parts)n.type===`text`?this.emit(T.CONST,e,this.constant(n.text)):(this.expression(n.expr),this.emit(T.STR,n.expr)),t>0&&this.emit(T.ADD,e),t++;t===0&&this.emit(T.CONST,e,this.constant(``));return}case`MatchExpr`:this.match(e);return;case`UnaryExpr`:this.expression(e.operand),this.emit(e.operator===`-`?T.NEG:T.NOT,e.operand);return;case`CallExpr`:this.expression(e.callee);for(let t of e.args)this.expression(t);this.emit(T.CALL,e,e.args.length);return;case`BinaryExpr`:this.binary(e);return}}binary(e){if(e.operator===`and`){this.expression(e.left);let t=this.emit(T.JUMP_IF_FALSE,e.left);this.expression(e.right),this.emit(T.CHECK_BOOL,e.right);let n=this.emit(T.JUMP,e);this.patch(t),this.emit(T.CONST,e,this.constant(!1)),this.patch(n)}else if(e.operator===`or`){this.expression(e.left);let t=this.emit(T.JUMP_IF_TRUE,e.left);this.expression(e.right),this.emit(T.CHECK_BOOL,e.right);let n=this.emit(T.JUMP,e);this.patch(t),this.emit(T.CONST,e,this.constant(!0)),this.patch(n)}else if(e.operator===`|>`){if(e.right.type===`CallExpr`){this.expression(e.right.callee),this.expression(e.left);for(let t of e.right.args)this.expression(t);this.emit(T.CALL,e,e.right.args.length+1);return}this.expression(e.right),this.expression(e.left),this.emit(T.CALL,e,1)}else this.expression(e.left),this.expression(e.right),this.emit(ge[e.operator],e)}match(e){this.pushScope(e,`match`),this.expression(e.scrutinee),this.defineName(e,`$subject`);let t=[];for(let n of e.arms){this.loadName(n.pattern,`$subject`);let e=this.chunk.patterns.length;this.chunk.patterns.push(n.pattern),this.emit(T.TRY_PATTERN,n.pattern,e);let r=this.emit(T.JUMP_IF_FALSE,n.pattern);this.expression(n.body),t.push(this.emit(T.JUMP,n.body)),this.patch(r)}this.emit(T.MATCH_FAIL,e);for(let e of t)this.patch(e);this.popScope(e)}emit(e,t,n=0,r){let i=this.chunk.code.length,a={op:e,arg:n,line:t.line,column:t.column};return r!==void 0&&(a.extra=r),this.chunk.code.push(a),i}reserve(e){let t=this.scopes[this.scopes.length-1],n=t.names.get(e);if(n!==void 0)return n;if(t.next>=1024)throw Error(`Scope has more than ${E} names`);let r=t.next;return t.next+=1,t.names.set(e,r),r}lookup(e){for(let t=this.scopes.length-1;t>=0;t--){let n=this.scopes[t].names.get(e);if(n!==void 0)return{depth:this.scopes.length-1-t,slot:n}}return null}loadName(e,t){let n=this.lookup(t);n?this.emit(T.LOCAL_GET,e,n.depth*E+n.slot,this.name(t)):this.emit(T.LOAD,e,this.name(t))}storeName(e,t){let n=this.lookup(t);n?this.emit(T.LOCAL_SET,e,n.depth*E+n.slot,this.name(t)):this.emit(T.STORE,e,this.name(t))}defineName(e,t){this.defineSlot(e,t,this.reserve(t))}defineSlot(e,t,n){this.emit(T.LOCAL_DEF,e,n,this.name(t))}pushScope(e,t){this.emit(T.PUSH_SCOPE,e,this.label(t)),this.scopes.push({names:/* @__PURE__ */ new Map,next:0})}popScope(e){this.emit(T.POP_SCOPE,e),this.scopes.pop()}patch(e){this.chunk.code[e].arg=this.chunk.code.length}name(e){let t=this.chunk.names.indexOf(e);return t<0&&(t=this.chunk.names.length,this.chunk.names.push(e)),t}constant(e){let t=this.chunk.constants.findIndex(t=>t===e);return t>=0?t:(this.chunk.constants.push(e),this.chunk.constants.length-1)}label(e){let t=this.chunk.labels.length;return this.chunk.labels.push(e),t}};let ge={"+":T.ADD,"-":T.SUB,"*":T.MUL,"/":T.DIV,"%":T.MOD,"==":T.EQ,"!=":T.NE,"<":T.LT,">":T.GT,"<=":T.LE,">=":T.GE};var O=class extends Error{code;detail;line;column;constructor(e,t,n,r){super(`${t} (line ${n}, column ${r})`),this.name=new.target.name,this.code=e,this.detail=t,this.line=n,this.column=r}},k=class extends O{},A=class extends O{},j=class extends O{};function _e(e,t){let n=(t.split(`
+`).map(e=>e.replace(/\r$/,``))[e.line-1]??``).replaceAll(`	`,` `),r=e.column<1?1:e.column,i=`${` `.repeat(r-1)}^`,a=String(e.line),o=` `.repeat(a.length);return[`${e.name} ${e.code}: ${e.detail} (line ${e.line}, column ${e.column})`,` ${a} | ${n}`,` ${o} | ${i}`].join(`
+`)}function M(e,t){return e.message=_e(e,t),e}function ve(e,t){if(e.length<3)return null;let n=null,r=3;for(let i of t){if(i===e||i.length<3)continue;let t=ye(e,i);t<r&&(n=i,r=t)}return n}function ye(e,t){if(e===t)return 0;let n=e.length+1,r=t.length+1,i=Array.from({length:n},()=>Array(r).fill(0));for(let e=0;e<n;e++)i[e][0]=e;for(let e=0;e<r;e++)i[0][e]=e;for(let a=1;a<n;a++)for(let n=1;n<r;n++){let r=e[a-1]===t[n-1]?0:1;i[a][n]=Math.min(i[a-1][n]+1,i[a][n-1]+1,i[a-1][n-1]+r)}return i[e.length][t.length]}function be(){return{len:(e,t)=>{e.length!==1&&F(`len`,1,e.length,t);let n=e[0];if(typeof n==`string`)return n.length;if(N(n))return n.items.length;throw new j(`E0502`,`len expects an array or a string`,t.line,t.column)},push:(e,t)=>{e.length!==2&&F(`push`,2,e.length,t);let n=e[0];if(!N(n))throw new j(`E0503`,`push expects an array`,t.line,t.column);return n.items.push(e[1]),n},pop:(e,t)=>{e.length!==1&&F(`pop`,1,e.length,t);let n=e[0];if(!N(n))throw new j(`E0504`,`pop expects an array`,t.line,t.column);if(n.items.length===0)throw new j(`E0505`,`pop expects a non-empty array`,t.line,t.column);return n.items.pop()},slice:(e,t)=>{e.length!==3&&F(`slice`,3,e.length,t);let n=e[0],r=Se(e[1],`slice start`,t),i=Se(e[2],`slice end`,t);if(typeof n==`string`){let e=xe(r,i,n.length,t);return n.slice(e.start,e.end)}if(N(n)){let e=xe(r,i,n.items.length,t);return{type:`array`,items:n.items.slice(e.start,e.end)}}throw new j(`E0506`,`slice expects an array or a string`,t.line,t.column)},ord:(e,t)=>{e.length!==1&&F(`ord`,1,e.length,t);let n=e[0];if(typeof n!=`string`||n.length!==1)throw new j(`E0507`,`ord expects a string of length 1`,t.line,t.column);return n.charCodeAt(0)},char:(e,t)=>{e.length!==1&&F(`char`,1,e.length,t);let n=e[0];if(typeof n!=`number`||!Number.isInteger(n)||n<0||n>65535)throw new j(`E0508`,`char expects a whole number from 0 to 65535`,t.line,t.column);return String.fromCharCode(n)}}}function N(e){return typeof e==`object`&&!!e&&e.type===`array`}function P(e,t,n,r){if(typeof e!=`number`||!Number.isInteger(e))throw new j(`E0214`,`Expected a whole number index, but got ${g(e)}`,n.line,n.column);if(e<0||e>=t)throw new j(`E0215`,`Index ${e} is out of range for ${r===`string`?`a string`:`an array`} of length ${t}`,n.line,n.column);return e}function xe(e,t,n,r){if(e<0||e>n)throw new j(`E0509`,`slice start ${e} is out of range for length ${n}`,r.line,r.column);if(t<e||t>n)throw new j(`E0510`,`slice end ${t} is out of range for length ${n}`,r.line,r.column);return{start:e,end:t}}function Se(e,t,n){if(typeof e!=`number`||!Number.isInteger(e))throw new j(`E0214`,`Expected a whole number ${t}, but got ${g(e)}`,n.line,n.column);return e}function F(e,t,n,r){throw new j(`E0501`,`${e} expects ${t} ${t===1?`argument`:`arguments`}, got ${n}`,r.line,r.column)}function I(e,t){switch(t.type){case`wild`:return[];case`bind`:return[{name:t.name,value:e,line:t.line,column:t.column}];case`literal`:return e===t.value?[]:null;case`quantity`:return!n(e)||e.value!==t.value||!d(e.unit,t.unit)?null:[];case`vec`:{if(!r(e))return null;let n=I(e.x,t.x);if(!n)return null;let i=I(e.y,t.y);return i?[...n,...i]:null}case`record`:{if(!a(e)||e.name!==t.name)return null;let n=[];for(let r of t.fields){if(!Object.prototype.hasOwnProperty.call(e.fields,r.name))return null;let t=I(e.fields[r.name],r.pattern);if(!t)return null;n.push(...t)}return n}}}function Ce(){return{vec:(e,t)=>{if(e.length!==2)throw new j(`E0501`,`vec expects 2 arguments, got ${e.length}`,t.line,t.column);let n=oe(e[0]),r=oe(e[1]);if(!n||!r)throw new j(`E0504`,`vec expects a number or a quantity, but got ${g(n?e[1]:e[0])}`,t.line,t.column);if(!d(n,r))throw new j(`E0217`,`vec components must share a unit (${h(n)} and ${h(r)})`,t.line,t.column);return{type:`vec`,x:e[0],y:e[1]}}}}function we(e=Math.random){return{sin:(e,t)=>Math.sin(R(e,`sin`,t)),cos:(e,t)=>Math.cos(R(e,`cos`,t)),sqrt:(e,t)=>{let n=R(e,`sqrt`,t);if(n<0)throw new j(`E0402`,`sqrt expects a number that is zero or greater`,t.line,t.column);return Math.sqrt(n)},abs:(e,t)=>Math.abs(R(e,`abs`,t)),random:(t,n)=>{if(t.length!==0)throw new j(`E0403`,`random expects 0 arguments, got ${t.length}`,n.line,n.column);return e()},min:(e,t)=>Oe(e,`min`,t,Math.min),max:(e,t)=>Oe(e,`max`,t,Math.max),hsl:(e,t)=>{if(e.length!==3)throw new j(`E0403`,`hsl expects 3 arguments, got ${e.length}`,t.line,t.column);let[n,r,i]=e.map(e=>z(e,`hsl`,t));return`hsl(${n}, ${r}%, ${i}%)`},clamp:(e,t)=>Te(e,t),lerp:(e,t)=>Ee(e,t),bounce:(e,t)=>De(e,t)}}function Te(t,r){if(t.length!==3)throw new j(`E0403`,`clamp expects 3 arguments, got ${t.length}`,r.line,r.column);let[i,a,o]=t;if(typeof i==`number`&&typeof a==`number`&&typeof o==`number`)return Math.max(a,Math.min(o,i));if(n(i)&&n(a)&&n(o)&&d(i.unit,a.unit)&&d(i.unit,o.unit))return e(Math.max(a.value,Math.min(o.value,i.value)),i.unit);throw new j(`E0401`,`clamp expects three numbers, or three quantities with the same unit`,r.line,r.column)}function Ee(e,t){if(e.length!==3)throw new j(`E0403`,`lerp expects 3 arguments, got ${e.length}`,t.line,t.column);let[i,a,o]=e;if(typeof o!=`number`)throw new j(`E0401`,`lerp expects the third argument to be a number`,t.line,t.column);if(r(i)&&r(a))return{type:`vec`,x:L(i.x,a.x,o,t),y:L(i.y,a.y,o,t)};if((typeof i==`number`||n(i))&&(typeof a==`number`||n(a)))return L(i,a,o,t);throw new j(`E0401`,`lerp expects two numbers, two quantities, or two vecs`,t.line,t.column)}function L(t,r,i,a){if(typeof t==`number`&&typeof r==`number`)return t+(r-t)*i;if(n(t)&&n(r)&&d(t.unit,r.unit))return e(t.value+(r.value-t.value)*i,t.unit);throw new j(`E0401`,`lerp expects both ends to share a unit`,a.line,a.column)}function De(e,t){if(e.length!==1)throw new j(`E0403`,`bounce expects 1 argument, got ${e.length}`,t.line,t.column);let n=C(e[0]);if(n.status===`value`)return n.value;throw new j(`E0401`,`bounce expects a number, a quantity, or a vec`,t.line,t.column)}function R(e,t,n){if(e.length!==1)throw new j(`E0403`,`${t} expects 1 argument, got ${e.length}`,n.line,n.column);return z(e[0],t,n)}function Oe(e,t,n,r){if(e.length<2)throw new j(`E0403`,`${t} expects at least 2 arguments, got ${e.length}`,n.line,n.column);return e.map(e=>z(e,t,n)).reduce((e,t)=>r(e,t))}function z(e,t,n){if(typeof e!=`number`)throw new j(`E0401`,`${t} expects a number`,n.line,n.column);return e}let ke=e(1/60,{px:0,s:1});function Ae(e,t,r=`wait`){if(!n(e)||e.unit.px!==0||e.unit.s!==1||e.value<0||!Number.isFinite(e.value))throw new j(`E0902`,`${r} expects a time in seconds, like 1.5s`,t.line,t.column);return Math.round(e.value*60)}let je={let:`LET`,if:`IF`,else:`ELSE`,while:`WHILE`,repeat:`REPEAT`,for:`FOR`,in:`IN`,fn:`FN`,return:`RETURN`,and:`AND`,or:`OR`,not:`NOT`,true:`TRUE`,false:`FALSE`,record:`RECORD`,match:`MATCH`,use:`USE`,on:`ON`,entity:`ENTITY`,spawn:`SPAWN`,at:`AT`,despawn:`DESPAWN`,each:`EACH`,where:`WHERE`,when:`WHEN`,touches:`TOUCHES`,task:`TASK`,wait:`WAIT`,until:`UNTIL`,every:`EVERY`,after:`AFTER`,rewind:`REWIND`};function Me(e){try{return new Ne(e).tokenize()}catch(t){throw t instanceof k?M(t,e):t}}var Ne=class{source;tokens=[];start=0;current=0;line=1;column=1;tokenColumn=1;constructor(e){this.source=e}tokenize(){for(;!this.isAtEnd()&&(this.skipWhitespaceAndComments(),!this.isAtEnd());)this.start=this.current,this.tokenColumn=this.column,this.scanToken();return this.tokens.push({type:`EOF`,lexeme:``,literal:null,line:this.line,column:this.column}),this.tokens}skipWhitespaceAndComments(){for(;!this.isAtEnd();){let e=this.peek();if(e===` `||e===`	`||e===`\r`||e===`
+`)this.advance();else if(e===`#`)for(;!this.isAtEnd()&&this.peek()!==`
+`&&this.peek()!==`\r`;)this.advance();else return}}scanToken(){let e=this.advance();switch(e){case`+`:return this.addToken(this.match(`=`)?`PLUS_ASSIGN`:`PLUS`);case`-`:return this.addToken(this.match(`=`)?`MINUS_ASSIGN`:`MINUS`);case`*`:return this.addToken(this.match(`=`)?`STAR_ASSIGN`:`STAR`);case`/`:return this.addToken(`SLASH`);case`%`:return this.addToken(`PERCENT`);case`(`:return this.addToken(`LPAREN`);case`)`:return this.addToken(`RPAREN`);case`{`:return this.addToken(`LBRACE`);case`}`:return this.addToken(`RBRACE`);case`[`:return this.addToken(`LBRACKET`);case`]`:return this.addToken(`RBRACKET`);case`,`:return this.addToken(`COMMA`);case`.`:return this.addToken(this.match(`.`)?`DOTDOT`:`DOT`);case`:`:return this.addToken(`COLON`);case`|`:if(this.match(`>`))return this.addToken(`PIPE`);throw this.error(`Unexpected character '|'`);case`=`:return this.match(`>`)?this.addToken(`ARROW`):this.addToken(this.match(`=`)?`EQ`:`ASSIGN`);case`<`:return this.addToken(this.match(`=`)?`LTE`:`LT`);case`>`:return this.addToken(this.match(`=`)?`GTE`:`GT`);case`!`:if(this.match(`=`))return this.addToken(`NOT_EQ`);throw this.error(`Unexpected character '!'`);case`"`:return this.string();default:if(B(e))return this.number();if(Pe(e))return this.identifier();throw this.error(`Unexpected character '${e}'`)}}number(){for(;B(this.peek());)this.advance();if(this.peek()===`.`&&B(this.peekNext()))for(this.advance();B(this.peek());)this.advance();else if(this.peek()===`.`&&this.peekNext()!==`.`)throw new k(`E0001`,`Unexpected character '.'`,this.line,this.column);let n=this.unitSuffix(),r=this.source.slice(this.start,this.current),i=Number(r.slice(0,r.length-n.length));this.addToken(`NUMBER`,n===``?i:e(i,t(n)))}unitSuffix(){let e=this.source.slice(this.current);if(e.startsWith(`px/s`)&&!V(e[4]??``)){for(let e=0;e<4;e++)this.advance();return`px/s`}return e.startsWith(`px`)&&!V(e[2]??``)?(this.advance(),this.advance(),`px`):e.startsWith(`s`)&&!V(e[1]??``)?(this.advance(),`s`):``}identifier(){for(;V(this.peek());)this.advance();let e=this.source.slice(this.start,this.current);this.addToken(je[e]??`IDENTIFIER`)}string(){let e=this.line,t=this.tokenColumn,n=``,r=!1,i=this.line,a=this.column,o=(e,t,r)=>{this.tokens.push({type:e,lexeme:n,literal:n,line:t,column:r})};for(;!this.isAtEnd()&&this.peek()!==`"`&&this.peek()!==`
+`&&this.peek()!==`\r`;)if(this.peek()===`{`){o(r?`TEMPLATE_MIDDLE`:`TEMPLATE_HEAD`,r?i:e,r?a:t),r=!0;let s=this.line,c=this.column;this.advance(),n=``,this.scanHole(s,c),i=this.line,a=this.column}else if(this.peek()===`\\`){let e=this.column;this.advance();let t=this.peek();if(t===``||t===`
+`||t===`\r`)throw new k(`E0002`,`Unterminated string escape`,this.line,e);switch(this.advance(),t){case`n`:n+=`
+`;break;case`t`:n+=`	`;break;case`\\`:n+=`\\`;break;case`"`:n+=`"`;break;case`{`:n+=`{`;break;case`}`:n+=`}`;break;default:throw new k(`E0003`,`Unknown string escape '\\${t}'`,this.line,e)}}else n+=this.advance();if(this.peek()!==`"`)throw new k(`E0004`,`Unterminated string. Add a closing quote`,e,t);this.advance(),r?o(`TEMPLATE_TAIL`,i,a):this.addToken(`STRING`,n)}scanHole(e,t){let n=1;for(;n>0;){if(this.skipWhitespaceAndComments(),this.isAtEnd())throw new k(`E0005`,`Unterminated interpolation. Add a closing }`,e,t);this.start=this.current,this.tokenColumn=this.column;let r=this.tokens.length;this.scanToken();for(let e of this.tokens.slice(r))e.type===`LBRACE`&&n++,e.type===`RBRACE`&&n--}this.tokens.pop()}addToken(e,t=null){this.tokens.push({type:e,lexeme:this.source.slice(this.start,this.current),literal:t,line:this.line,column:this.tokenColumn})}match(e){return this.peek()===e&&(this.advance(),!0)}advance(){let e=this.source[this.current];return this.current++,e===`
+`?(this.line++,this.column=1):e===`\r`?(this.peek()===`
+`&&this.current++,this.line++,this.column=1):this.column++,e}peek(){return this.isAtEnd()?``:this.source[this.current]}peekNext(){return this.current+1>=this.source.length?``:this.source[this.current+1]}isAtEnd(){return this.current>=this.source.length}error(e){return new k(`E0001`,e,this.line,this.column-1)}};function B(e){return e>=`0`&&e<=`9`}function Pe(e){return e>=`a`&&e<=`z`||e>=`A`&&e<=`Z`||e===`_`}function V(e){return Pe(e)||B(e)}let Fe={forward:1,back:1,turn:1,penup:0,pendown:0,color:1,width:1,goto:2,print:1},Ie={PIPE:{operator:`|>`,precedence:0},OR:{operator:`or`,precedence:1},AND:{operator:`and`,precedence:2},EQ:{operator:`==`,precedence:4},NOT_EQ:{operator:`!=`,precedence:4},LT:{operator:`<`,precedence:4},GT:{operator:`>`,precedence:4},LTE:{operator:`<=`,precedence:4},GTE:{operator:`>=`,precedence:4},PLUS:{operator:`+`,precedence:5},MINUS:{operator:`-`,precedence:5},STAR:{operator:`*`,precedence:6},SLASH:{operator:`/`,precedence:6},PERCENT:{operator:`%`,precedence:6}},Le={NOT:{operator:`not`,precedence:3},MINUS:{operator:`-`,precedence:7}};function H(e){return Re(e,()=>new ze(Me(e)).parseProgram())}function Re(e,t){try{return t()}catch(t){throw t instanceof O?M(t,e):t}}var ze=class{tokens;current=0;fnDepth=0;braceIsBlock=!1;constructor(e){this.tokens=e}parseProgram(){let e=this.peek(),t=[];for(;!this.isAtEnd();)t.push(this.statement());return{type:`Program`,body:t,...this.span(e)}}parseExpression(){let e=this.climb(0);if(!this.isAtEnd())throw this.unexpected();return e}statement(){return this.check(`LET`)?this.letStatement():this.check(`IF`)?this.ifStatement():this.check(`WHILE`)?this.whileStatement():this.check(`REPEAT`)?this.repeatStatement():this.check(`FOR`)?this.forStatement():this.check(`RECORD`)?this.recordStatement():this.check(`USE`)?this.useStatement():this.check(`ON`)?this.onStatement():this.check(`ENTITY`)?this.entityStatement():this.check(`DESPAWN`)?this.despawnStatement():this.check(`EACH`)?this.eachStatement():this.check(`WHEN`)?this.whenStatement():this.check(`TASK`)?this.taskStatement():this.check(`WAIT`)?this.waitStatement():this.check(`EVERY`)?this.everyStatement():this.check(`AFTER`)?this.afterStatement():this.check(`REWIND`)?this.rewindStatement():this.check(`FN`)&&this.peekNext().type===`IDENTIFIER`?this.fnStatement():this.check(`RETURN`)?this.returnStatement():this.check(`IDENTIFIER`)&&this.peekNext().type===`ASSIGN`?this.assignStatement():this.commandStatement()||this.expressionStatement()}letStatement(){let e=this.advance(),t=this.consume(`IDENTIFIER`,`a variable name`);this.consume(`ASSIGN`,`'='`);let n=this.climb(0);return{type:`LetStmt`,name:t.lexeme,value:n,...this.span(e)}}assignStatement(){let e=this.advance();this.consume(`ASSIGN`,`'='`);let t=this.climb(0);return{type:`AssignStmt`,name:e.lexeme,op:null,value:t,...this.span(e)}}ifStatement(){let e=this.advance(),t=this.beforeBlock(()=>this.climb(0)),n=this.block(),r=null;return this.check(`ELSE`)&&(this.advance(),r=this.block()),{type:`IfStmt`,condition:t,thenBranch:n,elseBranch:r,...this.span(e)}}whileStatement(){let e=this.advance();return{type:`WhileStmt`,condition:this.beforeBlock(()=>this.climb(0)),body:this.block(),...this.span(e)}}forStatement(){let e=this.advance(),t=this.consume(`IDENTIFIER`,`a variable name`);this.consume(`IN`,`'in'`);let n=this.beforeBlock(()=>this.climb(0));if(!this.check(`DOTDOT`)){let r=this.block();return{type:`ForInStmt`,name:t.lexeme,collection:n,body:r,...this.span(e)}}this.advance();let r=this.beforeBlock(()=>this.climb(0)),i=this.block();return{type:`ForStmt`,name:t.lexeme,start:n,end:r,body:i,...this.span(e)}}entityStatement(){let e=this.advance(),t=this.consume(`IDENTIFIER`,`an entity name`);this.consume(`LBRACE`,`'{'`);let n=this.fieldNames();return this.consume(`RBRACE`,`'}'`),{type:`EntityStmt`,name:t.lexeme,fields:n,...this.span(e)}}despawnStatement(){let e=this.advance();return{type:`DespawnStmt`,entity:this.climb(0),...this.span(e)}}eachStatement(){let e=this.advance(),t=this.consume(`IDENTIFIER`,`a variable name`);this.consume(`IN`,`'in'`);let n=this.consume(`IDENTIFIER`,`an entity name`),r=this.check(`WHERE`)?(this.advance(),this.beforeBlock(()=>this.climb(0))):null,i=this.block();return{type:`EachStmt`,name:t.lexeme,typeName:n.lexeme,where:r,body:i,...this.span(e)}}rewindStatement(){let e=this.advance();return{type:`RewindStmt`,time:this.climb(0),...this.span(e)}}whenStatement(){let e=this.advance(),t=this.consume(`IDENTIFIER`,`a variable name`);this.consume(`IN`,`'in'`);let n=this.consume(`IDENTIFIER`,`an entity name`);this.consume(`TOUCHES`,`'touches'`);let r=this.consume(`IDENTIFIER`,`a variable name`);this.consume(`IN`,`'in'`);let i=this.consume(`IDENTIFIER`,`an entity name`),a=this.block();return{type:`WhenStmt`,left:t.lexeme,leftType:n.lexeme,right:r.lexeme,rightType:i.lexeme,body:a,...this.span(e)}}taskStatement(){let e=this.advance(),t=this.consume(`IDENTIFIER`,`a task name`),n=this.block();return{type:`TaskStmt`,name:t.lexeme,body:n,...this.span(e)}}waitStatement(){let e=this.advance();return this.check(`UNTIL`)?(this.advance(),{type:`WaitStmt`,condition:this.climb(0),time:null,...this.span(e)}):{type:`WaitStmt`,condition:null,time:this.climb(0),...this.span(e)}}everyStatement(){let e=this.advance();return{type:`EveryStmt`,interval:this.beforeBlock(()=>this.climb(0)),body:this.block(),...this.span(e)}}afterStatement(){let e=this.advance();return{type:`AfterStmt`,delay:this.beforeBlock(()=>this.climb(0)),body:this.block(),...this.span(e)}}onStatement(){let e=this.advance(),t=this.consume(`IDENTIFIER`,`'start', 'tick', 'key', or 'key_up'`);if(t.lexeme===`start`)return{type:`OnStmt`,event:`start`,param:null,key:null,body:this.block(),...this.span(e)};if(t.lexeme===`tick`){this.consume(`LPAREN`,`'('`);let t=this.consume(`IDENTIFIER`,`a parameter name`);this.consume(`RPAREN`,`')'`);let n=this.block();return{type:`OnStmt`,event:`tick`,param:t.lexeme,key:null,body:n,...this.span(e)}}if(t.lexeme===`key`||t.lexeme===`key_up`){let n=this.consume(`STRING`,`a key name`),r=this.block();return{type:`OnStmt`,event:t.lexeme,param:null,key:String(n.literal),body:r,...this.span(e)}}throw new A(`E0101`,`Expected 'start', 'tick', 'key', or 'key_up'`,t.line,t.column)}useStatement(){let e=this.advance();return{type:`UseStmt`,name:this.consume(`IDENTIFIER`,`a module name`).lexeme,...this.span(e)}}recordStatement(){let e=this.advance(),t=this.consume(`IDENTIFIER`,`a record name`);this.consume(`LBRACE`,`'{'`);let n=this.fieldNames();return this.consume(`RBRACE`,`'}'`),{type:`RecordStmt`,name:t.lexeme,fields:n,...this.span(e)}}fieldNames(){let e=[];if(this.check(`RBRACE`))return e;for(e.push(this.fieldName(e));this.check(`COMMA`);)this.advance(),e.push(this.fieldName(e));return e}fieldName(e){let t=this.consume(`IDENTIFIER`,`a field name`);if(e.includes(t.lexeme))throw new A(`E0109`,`Field '${t.lexeme}' is repeated`,t.line,t.column);return t.lexeme}repeatStatement(){let e=this.advance();return{type:`RepeatStmt`,count:this.beforeBlock(()=>this.climb(0)),body:this.block(),...this.span(e)}}block(){let e=this.consume(`LBRACE`,`'{'`),t=[];for(;!this.check(`RBRACE`)&&!this.isAtEnd();){if(this.check(`ELSE`))throw new A(`E0101`,`Expected '}' before 'else'`,this.peek().line,this.peek().column);t.push(this.statement())}return this.consume(`RBRACE`,`'}'`),{type:`BlockStmt`,statements:t,...this.span(e)}}fnStatement(){let e=this.advance(),t=this.consume(`IDENTIFIER`,`a function name`);this.consume(`LPAREN`,`'('`);let n=this.parameterList();this.consume(`RPAREN`,`')'`),this.fnDepth++;let r=this.block();return this.fnDepth--,{type:`FnStmt`,name:t.lexeme,params:n,body:r,...this.span(e)}}parameterList(){let e=[];if(this.check(`RPAREN`))return e;for(e.push(this.parameter(e));this.check(`COMMA`);)this.advance(),e.push(this.parameter(e));return e}parameter(e){let t=this.consume(`IDENTIFIER`,`a parameter name`);if(e.some(e=>e.name===t.lexeme))throw new A(`E0102`,`Duplicate parameter '${t.lexeme}'`,t.line,t.column);return{name:t.lexeme,line:t.line,column:t.column}}returnStatement(){let e=this.advance();if(this.fnDepth===0)throw new A(`E0103`,`return must be inside a function`,e.line,e.column);return{type:`ReturnStmt`,value:this.startsExpression()?this.climb(0):null,...this.span(e)}}commandStatement(){if(!this.check(`IDENTIFIER`))return null;let e=this.peek(),t=Fe[e.lexeme],n=this.peekNext().type;if(t===void 0||n===`LPAREN`||n===`LBRACKET`||n===`ASSIGN`||n===`PLUS_ASSIGN`||n===`MINUS_ASSIGN`||n===`STAR_ASSIGN`)return null;this.advance();let r=[];for(let e=0;e<t;e++)r.push(this.climb(0));return{type:`ExprStmt`,expression:{type:`CallExpr`,callee:{type:`VariableExpr`,name:e.lexeme,line:e.line,column:e.column,endLine:e.line,endColumn:e.column+e.lexeme.length},args:r,...this.span(e)},...this.span(e)}}expressionStatement(){let e=this.climb(0);if(!(this.check(`ASSIGN`)||this.check(`PLUS_ASSIGN`)||this.check(`MINUS_ASSIGN`)||this.check(`STAR_ASSIGN`)))return{type:`ExprStmt`,expression:e,...this.spanFrom(e)};let t=this.advance(),n=t.type===`PLUS_ASSIGN`?`+`:t.type===`MINUS_ASSIGN`?`-`:t.type===`STAR_ASSIGN`?`*`:null,r=this.climb(0),i=this.spanFrom(e);if(i.endLine=r.endLine??r.line,i.endColumn=r.endColumn??r.column,e.type===`VariableExpr`)return{type:`AssignStmt`,name:e.name,op:n,value:r,...i};if(e.type===`IndexExpr`)return{type:`IndexAssignStmt`,object:e.object,index:e.index,op:n,value:r,...i};if(e.type===`FieldExpr`)return{type:`FieldAssignStmt`,object:e.object,name:e.name,op:n,value:r,nameLine:e.nameLine,nameColumn:e.nameColumn,...i};throw new A(`E0108`,`Only a name, an index, or a field can be assigned to`,e.line,e.column)}climb(e){let t=this.prefix(e);for(;;){let n=Ie[this.peek().type];if(!n||n.precedence<e)break;let r=this.advance(),i=this.climb(n.precedence+1);t={type:`BinaryExpr`,operator:n.operator,left:t,right:i,line:r.line,column:r.column,endLine:i.endLine??i.line,endColumn:i.endColumn??i.column}}return t}prefix(e){let t=this.peek(),n=Le[t.type];if(!n||n.precedence<e)return this.primary();this.advance();let r=this.climb(n.precedence);return{type:`UnaryExpr`,operator:n.operator,operand:r,line:t.line,column:t.column,endLine:r.endLine??r.line,endColumn:r.endColumn??r.column}}primary(){return this.postfix(this.atom())}atom(){let e=this.peek();if(e.type===`NUMBER`||e.type===`STRING`){if(this.advance(),typeof e.literal!=`number`&&typeof e.literal!=`string`&&!n(e.literal))throw new A(`E0104`,`Expected a literal value`,e.line,e.column);return{type:`LiteralExpr`,value:e.literal,...this.span(e)}}if(e.type===`SPAWN`)return this.spawnExpr();if(e.type===`TEMPLATE_HEAD`)return this.template();if(e.type===`MATCH`)return this.matchExpr();if(e.type===`LBRACE`)return this.mapLiteral();if(e.type===`TRUE`||e.type===`FALSE`)return this.advance(),{type:`LiteralExpr`,value:e.type===`TRUE`,...this.span(e)};if(e.type===`IDENTIFIER`)return this.advance(),{type:`VariableExpr`,name:e.lexeme,...this.span(e)};if(e.type===`LBRACKET`)return this.arrayLiteral();if(e.type===`FN`)return this.functionExpr();if(e.type===`LPAREN`){this.advance();let e=this.climb(0);if(this.peek().type!==`RPAREN`)throw this.expected(`')'`);return this.advance(),e}throw this.expected(`an expression`)}postfix(e){for(;;)if(this.check(`LPAREN`))e=this.finishCall(e);else if(this.check(`LBRACKET`))e=this.finishIndex(e);else if(this.check(`DOT`))e=this.finishField(e);else if(e.type===`VariableExpr`&&this.looksLikeRecord())e=this.recordLiteral(e);else return e}looksLikeRecord(){if(!this.check(`LBRACE`))return!1;let e=this.tokens[this.current+1],t=this.tokens[this.current+2];return e?.type===`IDENTIFIER`&&t?.type===`COLON`||!this.braceIsBlock&&e?.type===`RBRACE`}beforeBlock(e){let t=this.braceIsBlock;this.braceIsBlock=!0;try{return e()}finally{this.braceIsBlock=t}}finishField(e){this.advance();let t=this.consume(`IDENTIFIER`,`a field name`);return{type:`FieldExpr`,object:e,name:t.lexeme,nameLine:t.line,nameColumn:t.column,line:e.line,column:e.column,endLine:t.line,endColumn:t.column+t.lexeme.length}}spawnExpr(){let e=this.advance(),t=this.consume(`IDENTIFIER`,`an entity name`);this.consume(`AT`,`'at'`),this.consume(`LPAREN`,`'('`);let n=this.climb(0);this.consume(`COMMA`,`','`);let r=this.climb(0);this.consume(`RPAREN`,`')'`),this.consume(`LBRACE`,`'{'`);let i=[],a=/* @__PURE__ */ new Set;if(!this.check(`RBRACE`))for(i.push(this.fieldInit(a));this.check(`COMMA`);)this.advance(),i.push(this.fieldInit(a));return this.consume(`RBRACE`,`'}'`),{type:`SpawnExpr`,name:t.lexeme,x:n,y:r,fields:i,...this.span(e)}}recordLiteral(e){this.advance();let t=[],n=/* @__PURE__ */ new Set;if(!this.check(`RBRACE`))for(t.push(this.fieldInit(n));this.check(`COMMA`);)this.advance(),t.push(this.fieldInit(n));this.consume(`RBRACE`,`'}'`);let r=this.tokens[Math.max(this.current-1,0)];return{type:`RecordExpr`,name:e.name,fields:t,line:e.line,column:e.column,endLine:r.line,endColumn:r.column+r.lexeme.length}}fieldInit(e){let t=this.consume(`IDENTIFIER`,`a field name`);if(e.has(t.lexeme))throw new A(`E0109`,`Field '${t.lexeme}' is repeated`,t.line,t.column);e.add(t.lexeme),this.consume(`COLON`,`':'`);let n=this.climb(0);return{name:t.lexeme,value:n,line:t.line,column:t.column}}mapLiteral(){let e=this.advance(),t=[],n=/* @__PURE__ */ new Set;if(!this.check(`RBRACE`))for(t.push(this.mapEntry(n));this.check(`COMMA`);)this.advance(),t.push(this.mapEntry(n));return this.consume(`RBRACE`,`'}'`),{type:`MapExpr`,entries:t,...this.span(e)}}mapEntry(e){let t=this.mapKey();if(e.has(t.text))throw new A(`E0109`,`Key '${t.text}' is repeated`,t.line,t.column);e.add(t.text),this.consume(`COLON`,`':'`);let n=this.climb(0);return{key:t.text,value:n,line:t.line,column:t.column}}mapKey(){let e=this.peek();if(e.type===`IDENTIFIER`)return this.advance(),{text:e.lexeme,line:e.line,column:e.column};if(e.type===`STRING`&&typeof e.literal==`string`)return this.advance(),{text:e.literal,line:e.line,column:e.column};throw this.expected(`a key`)}template(){let e=this.advance(),t=[{type:`text`,text:String(e.literal??``)}];for(;;){if(t.push({type:`hole`,expr:this.climb(0)}),this.check(`TEMPLATE_MIDDLE`)){let e=this.advance();t.push({type:`text`,text:String(e.literal??``)});continue}let n=this.consume(`TEMPLATE_TAIL`,`the rest of the string`);return t.push({type:`text`,text:String(n.literal??``)}),{type:`InterpExpr`,parts:t,...this.span(e)}}}matchExpr(){let e=this.advance(),t=this.climb(0);if(this.consume(`LBRACE`,`'{'`),this.check(`RBRACE`))throw this.expected(`a pattern`);let n=[];for(;!this.check(`RBRACE`)&&!this.isAtEnd();){let e=/* @__PURE__ */ new Set,t=this.pattern(e),r=this.consume(`ARROW`,`'=>'`),i=this.climb(0);n.push({pattern:t,body:i,line:r.line,column:r.column})}return this.consume(`RBRACE`,`'}'`),{type:`MatchExpr`,scrutinee:t,arms:n,...this.span(e)}}pattern(e){if(this.check(`MINUS`)){let e=this.advance(),t=this.consume(`NUMBER`,`a number`);if(typeof t.literal==`number`)return{type:`literal`,value:-t.literal,line:e.line,column:e.column};if(n(t.literal))return{type:`quantity`,value:-t.literal.value,unit:t.literal.unit,line:e.line,column:e.column};throw new A(`E0104`,`Expected a number`,t.line,t.column)}let t=this.peek();if(t.type===`NUMBER`){if(this.advance(),typeof t.literal==`number`)return{type:`literal`,value:t.literal,line:t.line,column:t.column};if(n(t.literal))return{type:`quantity`,value:t.literal.value,unit:t.literal.unit,line:t.line,column:t.column};throw new A(`E0104`,`Expected a number`,t.line,t.column)}if(t.type===`STRING`&&typeof t.literal==`string`)return this.advance(),{type:`literal`,value:t.literal,line:t.line,column:t.column};if(t.type===`TRUE`||t.type===`FALSE`)return this.advance(),{type:`literal`,value:t.type===`TRUE`,line:t.line,column:t.column};if(t.type===`IDENTIFIER`&&t.lexeme===`_`)return this.advance(),{type:`wild`,line:t.line,column:t.column};if(t.type===`IDENTIFIER`&&t.lexeme===`vec`&&this.peekNext().type===`LPAREN`)return this.vecPattern(e);if(t.type===`IDENTIFIER`&&this.peekNext().type===`LBRACE`)return this.recordPattern(e);if(t.type===`IDENTIFIER`)return this.advance(),this.bindName(t.lexeme,e,t),{type:`bind`,name:t.lexeme,line:t.line,column:t.column};throw this.expected(`a pattern`)}vecPattern(e){let t=this.advance();this.consume(`LPAREN`,`'('`);let n=this.pattern(e);this.consume(`COMMA`,`','`);let r=this.pattern(e);return this.consume(`RPAREN`,`')'`),{type:`vec`,x:n,y:r,line:t.line,column:t.column}}recordPattern(e){let t=this.advance();this.consume(`LBRACE`,`'{'`);let n=[],r=/* @__PURE__ */ new Set;if(!this.check(`RBRACE`))for(n.push(this.patternField(e,r));this.check(`COMMA`);)this.advance(),n.push(this.patternField(e,r));return this.consume(`RBRACE`,`'}'`),{type:`record`,name:t.lexeme,fields:n,line:t.line,column:t.column}}patternField(e,t){let n=this.consume(`IDENTIFIER`,`a field name`);if(t.has(n.lexeme))throw new A(`E0109`,`Field '${n.lexeme}' is repeated`,n.line,n.column);return t.add(n.lexeme),this.consume(`COLON`,`':'`),{name:n.lexeme,pattern:this.pattern(e)}}bindName(e,t,n){if(t.has(e))throw new A(`E0109`,`Name '${e}' is bound twice in one pattern`,n.line,n.column);t.add(e)}arrayLiteral(){let e=this.advance(),t=[];if(!this.check(`RBRACKET`))for(t.push(this.climb(0));this.check(`COMMA`);)this.advance(),t.push(this.climb(0));return this.consume(`RBRACKET`,`']'`),{type:`ArrayExpr`,elements:t,...this.span(e)}}functionExpr(){let e=this.advance();this.consume(`LPAREN`,`'('`);let t=this.parameterList();this.consume(`RPAREN`,`')'`),this.fnDepth++;let n=this.block();return this.fnDepth--,{type:`FnExpr`,params:t,body:n,...this.span(e)}}finishIndex(e){this.advance();let t=this.climb(0);this.consume(`RBRACKET`,`']'`);let n=this.tokens[Math.max(this.current-1,0)];return{type:`IndexExpr`,object:e,index:t,line:e.line,column:e.column,endLine:n.line,endColumn:n.column+n.lexeme.length}}finishCall(e){this.advance();let t=[];if(!this.check(`RPAREN`))for(t.push(this.climb(0));this.check(`COMMA`);)this.advance(),t.push(this.climb(0));this.consume(`RPAREN`,`')'`);let n=this.tokens[Math.max(this.current-1,0)];return{type:`CallExpr`,callee:e,args:t,line:e.line,column:e.column,endLine:n.line,endColumn:n.column+n.lexeme.length}}startsExpression(){return this.check(`NUMBER`)||this.check(`STRING`)||this.check(`TRUE`)||this.check(`FALSE`)||this.check(`IDENTIFIER`)||this.check(`MINUS`)||this.check(`NOT`)||this.check(`LPAREN`)||this.check(`LBRACKET`)||this.check(`LBRACE`)||this.check(`FN`)||this.check(`MATCH`)||this.check(`SPAWN`)||this.check(`TEMPLATE_HEAD`)}check(e){return this.peek().type===e}consume(e,t){if(!this.check(e))throw this.expected(t);return this.advance()}peek(){return this.tokens[this.current]}peekNext(){return this.tokens[Math.min(this.current+1,this.tokens.length-1)]}advance(){let e=this.peek();return this.isAtEnd()||this.current++,e}isAtEnd(){return this.peek().type===`EOF`}span(e){let t=this.tokens[Math.max(this.current-1,0)];return{line:e.line,column:e.column,endLine:t.line,endColumn:t.column+t.lexeme.length}}spanFrom(e){return{line:e.line,column:e.column,endLine:e.endLine??e.line,endColumn:e.endColumn??e.column}}expected(e){let t=this.peek();return new A(`E0105`,`Expected ${e}, got ${t.type===`EOF`?`end of input`:`'${t.lexeme}'`}`,t.line,t.column)}unexpected(){let e=this.peek();return e.type===`EOF`?new A(`E0106`,`Unexpected end of input`,e.line,e.column):new A(`E0107`,`Unexpected token '${e.lexeme}'`,e.line,e.column)}};function Be(e){let t=(()=>{let e=t.state;e=e+1831565813|0;let n=Math.imul(e^e>>>15,1|e);return n=n+Math.imul(n^n>>>7,61|n)^n,t.state=e>>>0,((n^n>>>14)>>>0)/4294967296});return t.state=e>>>0,t}var Ve=class{nextId=1;entities=[];spawn(e,t,n,r,i){let a=new Set(e.fields.includes(`pos`)?[`x`,`y`,`pos`]:[`x`,`y`]),o=e.fields.filter(e=>!a.has(e)),s=new Map(r.map(e=>[e.name,e.value]));if(s.size!==r.length){let e=/* @__PURE__ */ new Set;for(let t of r){if(e.has(t.name))throw new j(`E0803`,`Field '${t.name}' is repeated`,i.line,i.column);e.add(t.name)}}for(let t of s.keys()){if(a.has(t))throw new j(`E0803`,`Field '${t}' is set by at`,i.line,i.column);if(!o.includes(t))throw new j(`E0803`,`Entity ${e.name} has no field '${t}'`,i.line,i.column)}for(let t of o)if(!s.has(t))throw new j(`E0803`,`Entity ${e.name} is missing field '${t}'`,i.line,i.column);let c={x:t,y:n};e.fields.includes(`pos`)&&(c.pos={type:`vec`,x:t,y:n});for(let e of o)c[e]=s.get(e);let l={type:`entity`,id:this.nextId++,name:e.name,alive:!0,fields:c};return this.entities.push(l),l}despawn(e,t){if(!o(e))throw new j(`E0804`,`Expected an entity`,t.line,t.column);if(!e.alive)throw new j(`E0806`,`Entity ${e.name}#${e.id} is already gone`,t.line,t.column);e.alive=!1;let n=this.entities.indexOf(e);n>=0&&this.entities.splice(n,1)}ofType(e){return this.entities.filter(t=>t.alive&&t.name===e)}replace(e){this.entities.length=0,this.entities.push(...e),this.nextId=e.reduce((e,t)=>Math.max(e,t.id),0)+1}};function He(e,t,n,r){let i=[];for(let a of e.ofType(t))for(let o of e.ofType(n))a.id!==o.id&&(t===n&&a.id>o.id||Ue(a,o,r)&&i.push([a,o]));return i}function Ue(e,t,n){let r=We(e,n),i=We(t,n),a=[...r.parts,...i.parts];for(let e of a)if(!d(e.unit,a[0].unit))throw new j(`E0807`,`Collision units do not match (${h(a[0].unit)} and ${h(e.unit)})`,n.line,n.column);if(r.kind===`circle`&&i.kind===`circle`)return Ge(r.x-i.x,r.y-i.y)<=(r.r+i.r)*(r.r+i.r);if(r.kind===`rect`&&i.kind===`rect`)return Math.abs(r.x-i.x)<=(r.w+i.w)/2&&Math.abs(r.y-i.y)<=(r.h+i.h)/2;let o=r.kind===`circle`?r:i,s=r.kind===`rect`?r:i,c=Ke(o.x,s.x-s.w/2,s.x+s.w/2),l=Ke(o.y,s.y-s.h/2,s.y+s.h/2);return Ge(o.x-c,o.y-l)<=o.r*o.r}function We(e,t){let n=t=>Object.prototype.hasOwnProperty.call(e.fields,t),i=e.fields.pos,a=r(i)?i.x:e.fields.x,o=r(i)?i.y:e.fields.y;if(a===void 0||o===void 0)throw new j(`E0802`,`Entity ${e.name} has no position`,t.line,t.column);let s=U(a,`${e.name}.x`,t),c=U(o,`${e.name}.y`,t);if(n(`r`)){let n=U(e.fields.r,`${e.name}.r`,t);return{kind:`circle`,x:s.n,y:c.n,r:n.n,parts:[s,c,n]}}if(n(`w`)&&n(`h`)){let n=U(e.fields.w,`${e.name}.w`,t),r=U(e.fields.h,`${e.name}.h`,t);return{kind:`rect`,x:s.n,y:c.n,w:n.n,h:r.n,parts:[s,c,n,r]}}throw new j(`E0801`,`Entity ${e.name} has no collision shape`,t.line,t.column)}function U(e,t,r){if(typeof e==`number`)return{n:e,unit:{px:0,s:0}};if(n(e))return{n:e.value,unit:e.unit};throw new j(`E0802`,`${t} must be a number or a quantity`,r.line,r.column)}function Ge(e,t){return e*e+t*t}function Ke(e,t,n){return Math.max(t,Math.min(n,e))}var W=class{parent;label;values=/* @__PURE__ */ new Map;locals=[];localReady=[];slots=/* @__PURE__ */ new Map;constructor(e=null,t=`block`){this.parent=e,this.label=t}define(e,t,n,r){if(this.values.has(e))throw new j(`E0201`,`'${e}' is already defined in this scope`,n.line,n.column);this.values.set(e,t),r===void 0?this.syncSlot(e,t):this.putLocal(r,e,t)}assign(e,t,n){if(this.values.has(e))this.values.set(e,t),this.syncSlot(e,t);else if(this.parent)this.parent.assign(e,t,n);else throw K(e,n,this.boundNames())}readLocal(e,t,n){if(this.localReady[e])return this.locals[e];if(this.values.has(t)){let n=this.values.get(t);return this.putLocal(e,t,n),n}throw K(t,n,this.boundNames())}writeLocal(e,t,n,r){if(!this.localReady[e]&&!this.values.has(t))throw K(t,r,this.boundNames());this.putLocal(e,t,n),this.values.set(t,n)}syncSlot(e,t){let n=this.slots.get(e);n!==void 0&&this.putLocal(n,e,t)}putLocal(e,t,n){this.locals[e]=n,this.localReady[e]=!0,this.slots.set(t,e)}get(e,t){if(this.values.has(e))return this.values.get(e);if(this.parent)return this.parent.get(e,t);throw K(e,t,this.boundNames())}chain(){let e=[],t=this;for(;t;)e.push(t),t=t.parent;return e}entries(){return[...this.values]}boundNames(){let e=[];for(let t of this.chain())for(let[n,r]of t.entries())!qe(r)&&!n.startsWith(`$`)&&e.push(n);return e}};function G(e,t,n){let r=e?.[t];if(!r)throw new j(`E0601`,`Unknown module '${t}'`,n.line,n.column);let i={};for(let[e,n]of Object.entries(r))i[e]={type:`builtin`,name:`${t}.${e}`,call:n};return{type:`module`,name:t,fields:i}}function K(e,t,n){let r=ve(e,n);return new j(`E0202`,r?`Undefined variable '${e}'. Did you mean '${r}'?`:`Undefined variable '${e}'`,t.line,t.column)}function qe(e){return typeof e==`object`&&!!e&&e.type===`builtin`}function q(e){return g(e)}function Je(e,t=/* @__PURE__ */ new Set){return typeof e==`string`?JSON.stringify(e):J(e,t)}function J(e,t=/* @__PURE__ */ new Set){if(e===null)return`nothing`;if(typeof e==`string`)return e;if(typeof e==`number`||typeof e==`boolean`)return String(e);if(n(e))return m(e);if(r(e))return`vec(${J(e.x,t)}, ${J(e.y,t)})`;if(i(e))return t.has(e)?`{...}`:(t.add(e),`{${e.entries.map(e=>`${e.key}: ${J(e.value,t)}`).join(`, `)}}`);if(a(e)){if(t.has(e))return`${e.name} {...}`;t.add(e);let n=Object.entries(e.fields).map(([e,n])=>`${e}: ${J(n,t)}`).join(`, `);return`${e.name} { ${n} }`}if(l(e))return`record ${e.name}`;if(s(e))return`entity ${e.name}`;if(e.type===`entity`){let n=Object.entries(e.fields).map(([e,n])=>`${e}: ${J(n,t)}`).join(`, `);return`${e.name}#${e.id} { ${n} }`}return e.type===`module`?`module ${e.name}`:e.type===`array`?t.has(e)?`[...]`:(t.add(e),`[${e.items.map(e=>J(e,t)).join(`, `)}]`):e.type===`function`?e.name===`(anonymous)`?`function`:`function ${e.name}`:`built-in ${e.name}`}function Ye(e,t){return Xe(rt(e),t)}function Xe(e,t){let n=e.constants,r=e.code;if(t.fold){let e=Ze(r,n);r=e.code,n=e.constants}return t.dce&&(r=tt(r)),{...e,code:r,constants:n,functions:e.functions.map(e=>Xe(e,t))}}function Ze(e,t){let n=e,r=t.slice();for(;;){let e=/* @__PURE__ */ new Set;for(let t of n)D(t.op)&&e.add(t.arg);let t=[],i=Array(n.length),a=!1,o=0;for(;o<n.length;){let s=Qe(n,o,e,r);if(!s){i[o]=t.length,t.push({...n[o]}),o++;continue}a=!0;let c=t.length;for(let e=0;e<s.consume;e++)i[o+e]=c;s.ins&&t.push(s.ins),o+=s.consume}for(let e of t)D(e.op)&&(e.arg=i[e.arg]??t.length);if(n=t,!a)break}return{code:n,constants:r}}function Qe(e,t,n,r){let i=e[t],a=e[t+1],o=e[t+2];if(!a||n.has(t+1))return null;if(i.op===T.CONST&&a.op===T.CHECK_NUM&&typeof r[i.arg]==`number`||i.op===T.CONST&&a.op===T.CHECK_BOOL&&typeof r[i.arg]==`boolean`||i.op===T.CONST&&a.op===T.CHECK_INT&&Number.isInteger(r[i.arg])||i.op===T.CONST&&a.op===T.CHECK_COUNT&&typeof r[i.arg]==`number`&&Number.isInteger(r[i.arg])&&r[i.arg]>=0)return{consume:2,ins:{...i}};if(i.op===T.CONST&&a.op===T.NEG&&typeof r[i.arg]==`number`)return{consume:2,ins:Y(r,-r[i.arg],a)};if(i.op===T.CONST&&a.op===T.NOT&&typeof r[i.arg]==`boolean`)return{consume:2,ins:Y(r,!r[i.arg],a)};if(i.op===T.CONST&&(a.op===T.JUMP_IF_FALSE||a.op===T.JUMP_IF_TRUE)){if(typeof r[i.arg]!=`boolean`)return null;let e=r[i.arg];return(a.op===T.JUMP_IF_FALSE?!e:e)?{consume:2,ins:{op:T.JUMP,arg:a.arg,line:a.line,column:a.column}}:{consume:2,ins:null}}if(!o||n.has(t+2)||i.op!==T.CONST||a.op!==T.CONST)return null;let s=$e(o.op,r[i.arg],r[a.arg]);return s===void 0?null:{consume:3,ins:Y(r,s,o)}}function $e(e,t,n){if(e===T.ADD&&typeof t==`string`&&typeof n==`string`)return t+n;if(e===T.EQ||e===T.NE)return typeof t==`object`||typeof n==`object`?void 0:e===T.EQ?t===n:t!==n;if(typeof t==`number`&&typeof n==`number`)switch(e){case T.ADD:return t+n;case T.SUB:return t-n;case T.MUL:return t*n;case T.DIV:return n===0?void 0:t/n;case T.MOD:return n===0?void 0:t%n;case T.LT:return t<n;case T.GT:return t>n;case T.LE:return t<=n;case T.GE:return t>=n;default:return}}function Y(e,t,n){return{op:T.CONST,arg:et(e,t),line:n.line,column:n.column}}function et(e,t){let n=e.findIndex(e=>e===t);return n>=0?n:(e.push(t),e.length-1)}function tt(e){let t=e.map(e=>({...e}));for(;;){let e=/* @__PURE__ */ new Set,n=[0];for(;n.length>0;){let r=n.pop();if(r===void 0||r<0||r>=t.length||e.has(r))continue;e.add(r);let i=t[r];i.op!==T.RETURN&&(i.op===T.JUMP?n.push(i.arg):((i.op===T.JUMP_IF_FALSE||i.op===T.JUMP_IF_TRUE)&&n.push(i.arg),n.push(r+1)))}let r=t.map((t,n)=>e.has(n)&&(t.op!==T.JUMP||t.arg!==n+1));if(r.every(Boolean))return t;t=nt(t,r)}}function nt(e,t){let n=Array(e.length+1),r=0;for(let i=0;i<e.length;i++)n[i]=r,t[i]&&r++;n[e.length]=r;let i=[];for(let r=0;r<e.length;r++){if(!t[r])continue;let a={...e[r]};D(a.op)&&(a.arg=n[Math.min(Math.max(a.arg,0),e.length)]),i.push(a)}return i}function rt(e){return{name:e.name,params:[...e.params],code:e.code.map(e=>({...e})),constants:[...e.constants],names:[...e.names],labels:[...e.labels],patterns:e.patterns.map(e=>e),functions:e.functions.map(rt)}}function it(e){let t=/* @__PURE__ */ new Map,n=e=>{let r=t.get(e);if(r!==void 0)return r;e.parent&&n(e.parent);let i=t.size;return t.set(e,i),i};n(e.globals),n(e.env);for(let t of e.frames)n(t.parentEnv);for(let t of e.handlers)n(t.fn.closure);for(let t of e.rules)n(t.fn.closure);for(let t of e.tasks)n(t.fn.closure);for(let t of e.sleeping)n(t.env),n(t.frame.parentEnv);let s=e=>{typeof e==`object`&&e&&(e.type===`function`&&n(e.closure),e.type===`array`?e.items.forEach(s):i(e)?e.entries.forEach(e=>s(e.value)):a(e)?Object.values(e.fields).forEach(e=>s(e)):r(e)?(s(e.x),s(e.y)):o(e)&&Object.values(e.fields).forEach(e=>s(e)))},c=[e.result,...e.stack,...e.world];for(let t of e.frames)c.push(...t.parentEnv.chain().flatMap(e=>e.entries().map(([,e])=>e)));let l=-1;for(;t.size!==l;){l=t.size;for(let e of t.keys())c.push(...e.entries().map(([,e])=>e));for(let e of c)s(e)}let u=/* @__PURE__ */ new Map,d=1,f=t=>ot(t,e.root,f,n,u,()=>d++),p=e.world.map(f),m=e.stack.map(f),h=f(e.result),g=[...t.entries()].sort((e,t)=>e[1]-t[1]).map(([e,n])=>({id:n,parent:e.parent?t.get(e.parent)??null:null,label:e.label,bindings:e.entries().map(([e,t])=>({name:e,value:f(t)}))}));return{rng:e.rng,steps:e.steps,callDepth:e.callDepth,peakDepth:e.peakDepth,result:h,stack:m,env:n(e.env),frames:e.frames.map(t=>({path:lt(e.root,t.chunk),ip:t.ip,parent:n(t.parentEnv),call:t.call,task:t.task===!0})),calls:e.calls.map(e=>({...e})),envs:g,ents:p,handlers:e.handlers.map(e=>({event:e.event,key:e.key,fn:f(e.fn),line:e.line,column:e.column})),rules:e.rules.map(e=>({left:e.left,right:e.right,fn:f(e.fn),line:e.line,column:e.column})),tasks:e.tasks.map(e=>({fn:f(e.fn),started:e.started,line:e.line,column:e.column})),sleeping:e.sleeping.map(t=>({path:lt(e.root,t.frame.chunk),ip:t.frame.ip,parent:n(t.frame.parentEnv),call:t.frame.call,task:t.frame.task===!0,env:n(t.env),name:t.call.name,line:t.call.line,column:t.call.column,mode:t.mode,wake:t.wake})),ticks:e.ticks,started:e.started,line:e.line,column:e.column}}function at(e,t,n,r,i){let a=/* @__PURE__ */ new Map;for(let t of e.envs){if(t.parent===null){a.set(t.id,n);continue}let e=a.get(t.parent);if(!e)throw Error(`Environment ${t.id} has no parent`);a.set(t.id,new W(e,t.label))}let o=/* @__PURE__ */ new Map,s=/* @__PURE__ */ new Map,c=e=>st(e,c,e=>{let t=a.get(e);if(!t)throw Error(`Missing environment ${e}`);return t},t,r,i,o,s);for(let t of e.ents)t.t===`ent`&&s.set(t.id,{type:`entity`,id:t.id,name:t.name,alive:t.alive,fields:{}});for(let t of e.ents){if(t.t!==`ent`)continue;let e=s.get(t.id);if(e)for(let n of t.fields)e.fields[n.k]=c(n.v)}for(let t of e.envs){let e=a.get(t.id);if(!e)throw Error(`Missing environment ${t.id}`);let n=new Set(e.entries().map(([e])=>e));for(let r of t.bindings){let t=c(r.value);n.has(r.name)?e.assign(r.name,t,{line:1,column:1}):e.define(r.name,t,{line:1,column:1})}}let l=a.get(e.env);if(!l)throw Error(`Missing current environment`);return{env:l,stack:e.stack.map(c),result:c(e.result),frames:e.frames.map(e=>({chunk:dt(t,e.path),ip:e.ip,parentEnv:a.get(e.parent)??n,call:e.call,task:e.task===!0})),handlers:e.handlers.flatMap(e=>{let t=c(e.fn);return ct(t)?[{event:e.event,key:e.key,fn:t,line:e.line,column:e.column}]:[]}),rules:e.rules.flatMap(e=>{let t=c(e.fn);return ct(t)?[{left:e.left,right:e.right,fn:t,line:e.line,column:e.column}]:[]}),tasks:e.tasks.flatMap(e=>{let t=c(e.fn);return ct(t)?[{fn:t,started:e.started,line:e.line,column:e.column}]:[]}),sleeping:e.sleeping.map(e=>({frame:{chunk:dt(t,e.path),ip:e.ip,parentEnv:a.get(e.parent)??n,call:e.call,task:e.task},env:a.get(e.env)??n,call:{name:e.name,line:e.line,column:e.column},mode:e.mode,wake:e.wake})),ticks:e.ticks,started:e.started,line:e.line,column:e.column,entities:e.ents.flatMap(e=>{if(e.t!==`ent`)return[];let t=s.get(e.id);return t&&t.alive?[t]:[]})}}function ot(e,t,u,d,f,p){if(typeof e==`number`)return{t:`num`,v:e};if(typeof e==`string`)return{t:`str`,v:e};if(typeof e==`boolean`)return{t:`bool`,v:e};if(e===null)return{t:`null`};if(n(e))return{t:`qty`,v:e.value,px:e.unit.px,s:e.unit.s};if(r(e))return{t:`vec`,x:u(e.x),y:u(e.y)};if(o(e))return f.has(e)?{t:`eref`,id:e.id}:(f.set(e,e.id),{t:`ent`,id:e.id,name:e.name,alive:e.alive,fields:Object.entries(e.fields).map(([e,t])=>({k:e,v:u(t)}))});let m=f.get(e);if(m!==void 0)return{t:`ref`,id:m};if(e.type===`array`){let t=p();return f.set(e,t),{t:`arr`,id:t,items:e.items.map(u)}}if(i(e)){let t=p();return f.set(e,t),{t:`map`,id:t,entries:e.entries.map(e=>({k:e.key,v:u(e.value)}))}}if(a(e)){let t=p();return f.set(e,t),{t:`rec`,id:t,name:e.name,fields:Object.entries(e.fields).map(([e,t])=>({k:e,v:u(t)}))}}if(l(e))return{t:`rtype`,name:e.name,fields:[...e.fields]};if(s(e))return{t:`etype`,name:e.name,fields:[...e.fields]};if(c(e))return{t:`mod`,name:e.name};if(e.type===`builtin`)return{t:`builtin`,name:e.name};if(e.type===`function`){if(!e.chunk)throw Error(`Cannot snapshot tree-walker function ${e.name}`);return{t:`fn`,name:e.name,path:lt(t,e.chunk),env:d(e.closure)}}return{t:`null`}}function st(e,t,n,r,i,a,o,s){switch(e.t){case`num`:return e.v;case`str`:return e.v;case`bool`:return e.v;case`null`:return null;case`qty`:return{type:`quantity`,value:e.v,unit:{px:e.px,s:e.s}};case`vec`:return{type:`vec`,x:t(e.x),y:t(e.y)};case`ref`:{let t=o.get(e.id);if(!t)throw Error(`Missing value ${e.id}`);return t}case`arr`:{let n=[],r={type:`array`,items:n};return o.set(e.id,r),n.push(...e.items.map(t)),r}case`map`:{let n={type:`map`,entries:[]};return o.set(e.id,n),n.entries.push(...e.entries.map(e=>({key:e.k,value:t(e.v)}))),n}case`rec`:{let n={type:`record`,name:e.name,fields:{}};o.set(e.id,n);for(let r of e.fields)n.fields[r.k]=t(r.v);return n}case`rtype`:return{type:`recordType`,name:e.name,fields:e.fields};case`etype`:return{type:`entityType`,name:e.name,fields:e.fields};case`mod`:return G(i,e.name,{line:1,column:1});case`builtin`:return a(e.name);case`eref`:{let t=s.get(e.id);if(!t)throw Error(`Missing entity ${e.id}`);return t}case`ent`:{let n=s.get(e.id);n||(n={type:`entity`,id:e.id,name:e.name,alive:e.alive,fields:{}},s.set(e.id,n));for(let r of e.fields)n.fields[r.k]=t(r.v);return n}case`fn`:{let t=dt(r,e.path);return{type:`function`,name:e.name,params:t.params.map(e=>({name:e,line:1,column:1})),body:null,chunk:t,closure:n(e.env)}}}}function ct(e){return typeof e==`object`&&!!e&&e.type===`function`}function lt(e,t){let n=ut(e,t);if(!n)throw Error(`Chunk ${t.name} is not in this program`);return n}function ut(e,t){if(e===t)return[];for(let n=0;n<e.functions.length;n++){let r=ut(e.functions[n],t);if(r)return[n,...r]}return null}function dt(e,t){let n=e;for(let e of t){let r=n.functions[e];if(!r)throw Error(`Missing chunk at ${t.join(`.`)}`);n=r}return n}function X(e,t){return n(e)?{type:`quantity`,value:t,unit:{...e.unit}}:t}function ft(e,t={}){let n;try{n=H(e)}catch(t){throw t instanceof O?M(t,e):t}let r=me(n),i=new pt(t.optimize?Ye(r,t.optimize):r,t);try{return i.finish()}catch(t){throw t instanceof O?M(t,e):t}}var pt=class{root;maxSteps;maxCallDepth;stats;globals;env;stack=[];frames=[];calls=[];steps=0;callDepth=0;peakDepth=0;result=null;endPause=null;modules;rng;restored=!1;started=!1;handlers=[];rules=[];world=new Ve;tasks=[];sleeping=[];ticks=0;halted=!1;cursorLine=0;cursorColumn=0;origin=null;log=[];pending=[];carry=null;replaying=!1;requested=null;justRewound=!1;constructor(e,t){this.root=e,this.maxSteps=t.maxSteps??1e5,this.maxCallDepth=t.maxCallDepth??100,this.stats=t.stats,this.globals=new W(null,`global`),this.modules=t.modules??{},this.rng=t.seed===void 0?null:Be(t.seed);let n={...we(this.rng??Math.random),...be(),...Ce(),...t.builtins};for(let[e,t]of Object.entries(n))this.globals.define(e,{type:`builtin`,name:e,call:t},{line:1,column:1});this.env=this.globals}finalPause(){return this.endPause??this.capture(0,0,-1,``)}finish(){try{return this.restored||this.frames.push({chunk:this.root,ip:0,parentEnv:this.env,call:!1}),this.drive(),this.resolveTouches(),this.launchIdle(),this.publish(),this.result}catch(e){throw this.publish(),e}}*run(e){try{return this.frames.push({chunk:this.root,ip:0,parentEnv:this.env,call:!1}),yield*this.loop(),this.resolveTouches(),this.launchIdle(),this.publish(),this.endPause=this.capture(0,0,-1,``),this.result}catch(t){throw this.publish(),t instanceof O?M(t,e):t}}*loop(){for(;this.frames.length>0;){let e=this.frames[this.frames.length-1];if(e.ip>=e.chunk.code.length){this.leave(null);continue}let t=e.chunk.code[e.ip];e.ip++,this.note(t),t.op===T.PAUSE?(yield this.capture(t.line,t.column,e.ip-1,e.chunk.name),this.guardStep(t)):this.exec(t,e)}}drive(){for(this.halted=!1;this.frames.length>0&&!this.halted;){let e=this.frames[this.frames.length-1];if(e.ip>=e.chunk.code.length){this.leave(null);continue}let t=e.chunk.code[e.ip];e.ip++,this.note(t),t.op===T.PAUSE?this.guardStep(t):this.exec(t,e)}}exec(e,t){let n=t.chunk;switch(e.op){case T.CONST:this.stack.push(n.constants[e.arg]);return;case T.LOAD:this.stack.push(this.env.get(n.names[e.arg],e));return;case T.STORE:this.env.assign(n.names[e.arg],this.pop(e),e);return;case T.DEFINE:this.env.define(n.names[e.arg],this.pop(e),e);return;case T.LOCAL_GET:{let t=Math.floor(e.arg/E),r=e.arg%E;this.stack.push(this.localEnv(t,e).readLocal(r,n.names[e.extra??0]??``,e));return}case T.LOCAL_SET:{let t=Math.floor(e.arg/E),r=e.arg%E;this.localEnv(t,e).writeLocal(r,n.names[e.extra??0]??``,this.pop(e),e);return}case T.LOCAL_DEF:this.env.define(n.names[e.extra??0]??``,this.pop(e),e,e.arg);return;case T.DUP:{let t=this.stack[this.stack.length-1];if(t===void 0)throw Error(`Bytecode stack underflow at ${e.line}:${e.column}`);this.stack.push(t);return}case T.DUP2:{let t=this.stack[this.stack.length-1],n=this.stack[this.stack.length-2];if(t===void 0||n===void 0)throw Error(`Bytecode stack underflow at ${e.line}:${e.column}`);this.stack.push(n,t);return}case T.REWIND:this.requested=Ae(this.pop(e),e,`rewind`),this.frames.length=0;return;case T.ADD:this.arith(e,`+`);return;case T.SUB:this.arith(e,`-`);return;case T.MUL:this.arith(e,`*`);return;case T.DIV:this.arith(e,`/`);return;case T.MOD:this.bin(e,(t,n)=>{if(n===0)throw new j(`E0203`,`Division by zero`,e.line,e.column);return t%n});return;case T.NEG:{let t=this.pop(e),n=C(t);if(n.status===`fail`)throw new j(n.code,n.detail,e.line,e.column);this.stack.push(n.status===`value`?n.value:-this.number(t,e));return}case T.NOT:this.stack.push(!this.boolean(this.pop(e),e));return;case T.EQ:this.compare(!0);return;case T.NE:this.compare(!1);return;case T.LT:this.arith(e,`<`);return;case T.GT:this.arith(e,`>`);return;case T.LE:this.arith(e,`<=`);return;case T.GE:this.arith(e,`>=`);return;case T.JUMP:t.ip=e.arg;return;case T.JUMP_IF_FALSE:this.boolean(this.pop(e),e)||(t.ip=e.arg);return;case T.JUMP_IF_TRUE:this.boolean(this.pop(e),e)&&(t.ip=e.arg);return;case T.CALL:this.call(e);return;case T.RETURN:this.leave(this.pop(e));return;case T.CLOSURE:{let t=n.functions[e.arg],r={type:`function`,name:t.name,params:t.params.map(t=>({name:t,line:e.line,column:e.column})),body:null,chunk:t,closure:this.env};this.stack.push(r);return}case T.ARRAY:{let t=[];for(let n=0;n<e.arg;n++)t.push(this.pop(e));t.reverse(),this.stack.push({type:`array`,items:t});return}case T.INDEX:{let t=this.pop(e),n=this.pop(e);this.stack.push(this.readIndex(n,t,e));return}case T.SET_INDEX:{let t=this.pop(e),n=this.pop(e),r=this.pop(e);this.writeIndex(r,n,t,e);return}case T.PUSH_SCOPE:this.env=new W(this.env,n.labels[e.arg]??`block`);return;case T.POP_SCOPE:this.env.parent&&(this.env=this.env.parent);return;case T.CHECK_COUNT:this.stack.push(this.count(this.pop(e),e));return;case T.CHECK_INT:this.stack.push(this.whole(this.pop(e),e));return;case T.CHECK_NUM:this.stack.push(this.number(this.pop(e),e));return;case T.CHECK_BOOL:this.stack.push(this.boolean(this.pop(e),e));return;case T.SET_RESULT:this.result=this.pop(e);return;case T.STR:this.stack.push(J(this.pop(e)));return;case T.ITEMS:{let t=this.pop(e),n=se(t);if(!n)throw new j(`E0225`,`Expected a collection, but got ${q(t)}`,e.line,e.column);this.stack.push({type:`array`,items:n});return}case T.LEN:{let t=this.pop(e);if(typeof t==`string`)this.stack.push(t.length);else if(N(t))this.stack.push(t.items.length);else if(i(t))this.stack.push(t.entries.length);else throw new j(`E0225`,`Expected a collection, but got ${q(t)}`,e.line,e.column);return}case T.GET_FIELD:{let t=this.pop(e),r=n.names[e.arg]??``;if(s(t)&&r===`count`){this.stack.push(this.world.ofType(t.name).length);return}let i=ue(t,r);if(i.status===`fail`)throw new j(i.code,i.detail,e.line,e.column);this.stack.push(i.value);return}case T.SET_FIELD:{let t=this.pop(e),r=de(this.pop(e),n.names[e.arg]??``,t);if(r.status===`fail`)throw new j(r.code,r.detail,e.line,e.column);return}case T.MAKE_MAP:{let t={type:`map`,entries:[]},n=[];for(let t=0;t<e.arg;t++){let t=this.pop(e),r=this.pop(e);if(typeof r!=`string`)throw new j(`E0220`,`Expected a string key`,e.line,e.column);n.push({key:r,value:t})}n.reverse();for(let e of n)le(t,e.key,e.value);this.stack.push(t);return}case T.RECORD_TYPE:{let t=this.number(this.pop(e),e),r=[];for(let n=0;n<t;n++){let t=this.pop(e);if(typeof t!=`string`)throw new j(`E0222`,`Expected a field name`,e.line,e.column);r.push(t)}r.reverse();let i={type:`recordType`,name:n.names[e.arg]??``,fields:r};this.stack.push(i);return}case T.MAKE_RECORD:{let t=[];for(let n=0;n<e.arg;n++){let n=this.pop(e),r=this.pop(e);if(typeof r!=`string`)throw new j(`E0222`,`Expected a field name`,e.line,e.column);t.push({name:r,value:n})}t.reverse();let n=fe(this.pop(e),t);if(n.status===`fail`)throw new j(n.code,n.detail,e.line,e.column);this.stack.push(n.value);return}case T.TRY_PATTERN:{let t=I(this.pop(e),n.patterns[e.arg]);if(!t){this.stack.push(!1);return}for(let e of t)this.env.define(e.name,e.value,e);this.stack.push(!0);return}case T.MATCH_FAIL:throw new j(`E0224`,`No pattern matched`,e.line,e.column);case T.USE_MODULE:this.stack.push(G(this.modules,n.names[e.arg]??``,e));return;case T.ENTITY_TYPE:{let t=this.number(this.pop(e),e),r=[];for(let n=0;n<t;n++){let t=this.pop(e);if(typeof t!=`string`)throw new j(`E0222`,`Expected a field name`,e.line,e.column);r.push(t)}r.reverse();let i={type:`entityType`,name:n.names[e.arg]??``,fields:r};this.stack.push(i);return}case T.SPAWN:{let t=[];for(let n=0;n<e.arg;n++){let n=this.pop(e),r=this.pop(e);if(typeof r!=`string`)throw new j(`E0803`,`Expected a field name`,e.line,e.column);t.push({name:r,value:n})}t.reverse();let n=this.pop(e),r=this.pop(e),i=this.pop(e);if(!s(n))throw new j(`E0805`,`Expected an entity type, but got ${q(n)}`,e.line,e.column);this.stack.push(this.world.spawn(n,i,r,t,e));return}case T.DESPAWN:this.world.despawn(this.pop(e),e);return;case T.ENTITIES:{let t=this.pop(e);if(!s(t))throw new j(`E0805`,`Expected an entity type, but got ${q(t)}`,e.line,e.column);this.stack.push({type:`array`,items:this.world.ofType(t.name)});return}case T.ALIVE:{let t=this.pop(e);this.stack.push(o(t)&&t.alive);return}case T.TOUCH:{let t=this.pop(e),n=this.pop(e),r=this.pop(e);if(!Q(t)||typeof r!=`string`||typeof n!=`string`)throw new j(`E0805`,`Expected an entity type`,e.line,e.column);this.rules.push({left:r,right:n,fn:t,at:e});return}case T.WAIT_TIME:{let t=this.ticks+Ae(this.pop(e),e);this.park(e,`time`,t);return}case T.WAIT_UNTIL:this.park(e,`until`,0);return;case T.TASK:{let t=this.pop(e);if(!Q(t)||t.chunk===null)throw new j(`E0204`,`That value is not a function`,e.line,e.column);this.tasks.push({fn:t,started:!1,at:e});return}case T.REGISTER:{let t=this.pop(e),n=this.pop(e);if(typeof t!=`string`||!Q(n))throw new j(`E0204`,`That value is not a function`,e.line,e.column);let r=[`start`,`tick`,`key`,`key_up`][e.arg];if(!r)throw new j(`E0204`,`That value is not a function`,e.line,e.column);this.handlers.push({event:r,key:t===``?null:t,fn:n,at:e});return}case T.PAUSE:return;default:throw Error(`Unknown opcode ${String(e.op)}`)}}call(e,t=!1){let n=[];for(let t=0;t<e.arg;t++)n.push(this.pop(e));n.reverse();let r=this.pop(e);if(Z(r)){this.stack.push(r.call(n,e));return}if(!Q(r)||r.chunk===null)throw new j(`E0204`,`That value is not a function`,e.line,e.column);let i=r.chunk.params;if(n.length!==i.length){let t=i.length;throw new j(`E0205`,`'${r.name}' expects ${t} argument${t===1?``:`s`}, got ${n.length}`,e.line,e.column)}if(this.callDepth>=this.maxCallDepth)throw new j(`E0206`,`Call depth limit of ${this.maxCallDepth} exceeded (possible infinite recursion)`,e.line,e.column);let a=new W(r.closure,r.name);for(let t=0;t<i.length;t++)a.define(i[t],n[t],e,t);this.callDepth++,this.peakDepth=Math.max(this.peakDepth,this.callDepth),this.calls.push({name:r.name,line:e.line,column:e.column}),this.frames.push({chunk:r.chunk,ip:0,parentEnv:this.env,call:!0,task:t}),this.env=a}leave(e){let t=this.frames.pop();t&&(this.env=t.parentEnv,t.call&&(this.callDepth--,this.calls.pop(),this.stack.push(e)))}arith(e,t){let n=this.pop(e),r=this.pop(e);if(t===`+`&&(typeof r==`string`||typeof n==`string`)){if(typeof r!=`string`||typeof n!=`string`)throw new j(`E0212`,`'+' expects two numbers or two strings`,e.line,e.column);this.stack.push(r+n);return}let i=x(t,r,n);if(i.status===`fail`)throw new j(i.code,i.detail,e.line,e.column);i.status===`value`?this.stack.push(i.value):this.stack.push(((n,r)=>{if(t===`+`)return n+r;if(t===`-`)return n-r;if(t===`*`)return n*r;if(t===`/`){if(r===0)throw new j(`E0203`,`Division by zero`,e.line,e.column);return n/r}return t===`<`?n<r:t===`>`?n>r:t===`<=`?n<=r:n>=r})(this.number(r,e),this.number(n,e)))}bin(e,t){let n=this.pop(e),r=this.pop(e);this.stack.push(t(this.number(r,e),this.number(n,e)))}compare(e){let t=this.pop(),n=mt(this.pop(),t);this.stack.push(e?n:!n)}readIndex(e,t,n){if(i(e)){if(typeof t!=`string`)throw new j(`E0220`,`Expected a string key, but got ${q(t)}`,n.line,n.column);let r=ce(e,t);if(r===void 0&&!e.entries.some(e=>e.key===t))throw new j(`E0221`,`Map has no key '${t}'`,n.line,n.column);return r}if(typeof e==`string`)return e[P(t,e.length,n,`string`)];let r=this.array(e,n);return r.items[P(t,r.items.length,n,`array`)]}writeIndex(e,t,n,r){if(i(e)){if(typeof t!=`string`)throw new j(`E0220`,`Expected a string key, but got ${q(t)}`,r.line,r.column);le(e,t,n);return}if(typeof e==`string`)throw new j(`E0217`,`Cannot assign into a string; strings are immutable`,r.line,r.column);let a=this.array(e,r);a.items[P(t,a.items.length,r,`array`)]=n}array(e,t){if(!N(e))throw new j(`E0213`,`Expected an array, but got ${q(e)}`,t.line,t.column);return e}count(e,t){let n=this.whole(e,t);if(n<0)throw new j(`E0211`,`repeat count cannot be negative`,t.line,t.column);return n}whole(e,t){if(typeof e!=`number`||!Number.isInteger(e))throw new j(`E0210`,`Expected a whole number, but got ${q(e)}`,t.line,t.column);return e}number(e,t){if(typeof e!=`number`)throw new j(`E0209`,`Expected a number, but got ${q(e)}`,t.line,t.column);return e}boolean(e,t){if(typeof e!=`boolean`)throw new j(`E0208`,`Expected a boolean, but got ${q(e)}`,t.line,t.column);return e}capture(e,t,n,r){return this.publish(),{line:e,column:t,scopes:this.env.chain().map(e=>({label:e.label,bindings:e.entries().filter(([e,t])=>!Z(t)&&!e.startsWith(`$`)).map(([e,t])=>({name:e,value:Je(t)}))})).filter(e=>e.bindings.length>0||e.label===`global`||![`for`,`repeat`,`block`,`match`].includes(e.label)),stack:this.calls.map(e=>({...e})),steps:this.steps,entities:this.world.entities.map(e=>({name:e.name,id:e.id,fields:Object.entries(e.fields).map(([e,t])=>({name:e,value:Je(t)}))})),maxCallDepth:this.peakDepth,ip:n,chunk:r}}guardStep(e){if(this.steps++,this.publish(),this.steps>this.maxSteps)throw new j(`E0207`,`Step limit of ${this.maxSteps} exceeded (possible infinite loop)`,e.line,e.column)}publish(){this.stats&&(this.stats.steps=this.steps,this.stats.maxCallDepth=this.peakDepth)}handlerCount(){return this.handlers.length+this.tasks.length}read(e){return this.globals.get(e,{line:1,column:1})}glance(){return this.capture(this.cursorLine,this.cursorColumn,-1,``)}captureEntities(){return this.world.entities.filter(e=>e.alive).map(e=>({id:e.id,name:e.name,fields:Object.fromEntries(Object.entries(e.fields).map(([e,t])=>[e,n(t)?{type:`quantity`,value:t.value,unit:{...t.unit}}:t]))}))}adoptEntities(e){for(let t of e){let e=this.world.entities.find(e=>e.id===t.id&&e.name===t.name&&e.alive);if(e)for(let[n,r]of Object.entries(t.fields))Object.prototype.hasOwnProperty.call(e.fields,n)&&(e.fields[n]=r)}}placeEntity(e,t,n){let i=this.world.entities.find(t=>t.id===e&&t.alive);if(!i)return;i.fields.x=X(i.fields.x,t),i.fields.y=X(i.fields.y,n);let a=i.fields.pos;r(a)&&(a.x=X(a.x,t),a.y=X(a.y,n))}consumeRewind(){let e=this.justRewound;return this.justRewound=!1,e}note(e){e.line>0&&(this.cursorLine=e.line,this.cursorColumn=e.column)}frame(t){let n=this.replaying?this.carry??[]:this.pending.splice(0);if(this.carry=null,this.origin||=this.image(),this.replaying||this.log.push({events:t,repl:n}),this.replaying)for(let e of n)this.evalSnippet(e);if(this.steps=0,this.started||(this.started=!0,this.dispatch(`start`,null,null)),this.requested!==null||(this.launchIdle(),this.requested!==null)||(this.ticks+=1,this.resumeDue(`time`),this.requested!==null)||(this.dispatch(`tick`,e(ke.value,ke.unit),null),this.requested!==null)||(this.resumeDue(`until`),this.requested!==null))return this.finishRewind();for(let e of t)if(this.dispatch(e.type,null,e.key),this.requested!==null)return this.finishRewind();this.resolveTouches(),this.requested!==null&&this.finishRewind()}finishRewind(){let e=this.requested;if(this.requested=null,e===null||this.replaying||!this.origin)return;let t=Math.max(0,this.log.length-1-e),n=this.log.slice(0,t);this.restore(this.origin),this.pending=[],this.log=[],this.replaying=!0;for(let e of n)this.carry=e.repl,this.frame(e.events);this.replaying=!1,this.log=n,this.justRewound=!0}launchIdle(){for(let e of this.tasks){if(this.requested!==null)return;if(!e.started){if(e.started=!0,this.stack.push(e.fn),this.call({op:T.CALL,arg:0,line:e.at.line,column:e.at.column},!0),this.drive(),this.requested!==null)return;this.halted||this.stack.pop()}}}resumeDue(e){let t=[],n=[];for(let r of this.sleeping)r.mode===e&&(e===`until`||r.wake<=this.ticks)?t.push(r):n.push(r);this.sleeping.length=0,this.sleeping.push(...n);for(let e of t){if(this.requested!==null||(this.frames.push(e.frame),this.env=e.env,this.calls.push(e.call),this.callDepth++,this.peakDepth=Math.max(this.peakDepth,this.callDepth),this.drive(),this.requested!==null))return;this.halted||this.stack.pop()}}park(e,t,n){let r=this.frames[this.frames.length-1];if(!r?.task)throw new j(`E0901`,`wait is only allowed inside a task`,e.line,e.column);this.frames.pop();let i=this.env;this.env=r.parentEnv,this.callDepth--;let a=this.calls.pop();if(!a)throw Error(`task is missing a call frame`);this.sleeping.push({frame:r,env:i,call:a,mode:t,wake:n}),this.halted=!0}resolveTouches(){for(let e of this.rules){if(this.requested!==null)return;for(let[t,n]of He(this.world,e.left,e.right,e.at)){if(this.requested!==null)return;if(t.alive&&n.alive){if(this.stack.push(e.fn),this.stack.push(t),this.stack.push(n),this.call({op:T.CALL,arg:2,line:e.at.line,column:e.at.column}),this.drive(),this.requested!==null)return;this.stack.pop()}}}}dispatch(e,t,n){for(let r of this.handlers){if(this.requested!==null)return;if(r.event!==e||r.key!==null&&r.key!==n)continue;let i=t===null?0:1;if(this.stack.push(r.fn),t!==null&&this.stack.push(t),this.call({op:T.CALL,arg:i,line:r.at.line,column:r.at.column}),this.drive(),this.requested!==null)return;this.stack.pop()}}image(){return it({root:this.root,rng:this.rng?this.rng.state:null,steps:this.steps,callDepth:this.callDepth,peakDepth:this.peakDepth,result:this.result,stack:this.stack,env:this.env,globals:this.globals,frames:this.frames,calls:this.calls,world:this.world.entities,handlers:this.handlers.map(e=>({event:e.event,key:e.key,fn:e.fn,line:e.at.line,column:e.at.column})),rules:this.rules.map(e=>({left:e.left,right:e.right,fn:e.fn,line:e.at.line,column:e.at.column})),tasks:this.tasks.map(e=>({fn:e.fn,started:e.started,line:e.at.line,column:e.at.column})),sleeping:this.sleeping.map(e=>({frame:e.frame,env:e.env,call:e.call,mode:e.mode,wake:e.wake})),ticks:this.ticks,started:this.started,line:this.cursorLine,column:this.cursorColumn})}restore(e){this.rng&&e.rng!==null&&(this.rng.state=e.rng>>>0);let t=/* @__PURE__ */ new Map;for(let[,e]of this.globals.entries())Z(e)&&t.set(e.name,e);let n=at(e,this.root,this.globals,this.modules,e=>{let n=t.get(e);if(n)return n;let r=e.indexOf(`.`);if(r>0){let t=G(this.modules,e.slice(0,r),{line:1,column:1}).fields[e.slice(r+1)];if(Z(t))return t}throw Error(`Cannot restore built-in ${e}`)});this.stack.length=0,this.stack.push(...n.stack),this.env=n.env,this.frames.length=0,this.frames.push(...n.frames),this.calls.length=0,this.calls.push(...e.calls),this.steps=e.steps,this.callDepth=e.callDepth,this.peakDepth=e.peakDepth,this.result=n.result,this.world.replace(n.entities),this.handlers.length=0,this.handlers.push(...n.handlers.map(e=>({event:e.event,key:e.key,fn:e.fn,at:{op:T.CALL,arg:0,line:e.line,column:e.column}}))),this.rules.length=0,this.rules.push(...n.rules.map(e=>({left:e.left,right:e.right,fn:e.fn,at:{op:T.CALL,arg:0,line:e.line,column:e.column}}))),this.tasks.length=0,this.tasks.push(...n.tasks.map(e=>({fn:e.fn,started:e.started,at:{op:T.CALL,arg:0,line:e.line,column:e.column}}))),this.sleeping.length=0,this.sleeping.push(...n.sleeping),this.ticks=n.ticks,this.started=n.started,this.cursorLine=n.line,this.cursorColumn=n.column,this.restored=!0,this.pending=[]}evalSnippet(e){let t;try{t=H(e)}catch(t){throw t instanceof O?M(t,e):t}let n=me(t),r=this.frames.length,i=this.stack.length,a=this.steps;this.steps=0,this.frames.push({chunk:n,ip:0,parentEnv:this.globals,call:!1}),this.env=this.globals;try{this.drive()}catch(t){throw this.frames.length=r,this.stack.length=i,this.steps=a,t instanceof O?M(t,e):t}return this.steps=a,this.requested===null?(this.replaying||this.pending.push(e),t.body.some(e=>e.type===`ExprStmt`)?this.result:null):(this.replaying||this.finishRewind(),this.result)}localEnv(e,t){let n=this.env;for(let t=0;t<e&&n;t++)n=n.parent;if(!n)throw new j(`E0202`,`Undefined variable`,t.line,t.column);return n}pop(e){let t=this.stack.pop();if(t===void 0){let t=e?` at ${e.line}:${e.column}`:``;throw Error(`Bytecode stack underflow${t}`)}return t}};function Z(e){return typeof e==`object`&&!!e&&e.type===`builtin`}function Q(e){return typeof e==`object`&&!!e&&e.type===`function`}function mt(e,t){let n=w(e,t);return n===null?(e===null||t===null||typeof e==typeof t)&&e===t:n}function ht(e){return vt(e)}function gt(e){if(!i(e))throw Error(`self-hosted parser must return a map`);return yt(e,`ok`)?{ok:!0,program:_t($(e,`program`))}:{ok:!1,code:bt(e,`code`),detail:bt(e,`detail`),line:xt(e,`line`),column:xt(e,`column`)}}function _t(e){if(e===null||typeof e==`boolean`||typeof e==`number`||typeof e==`string`)return e;if(n(e))return{type:`Quantity`,value:e.value,unit:{px:e.unit.px,s:e.unit.s}};if(N(e))return e.items.map(e=>_t(e));if(i(e)){let t={};for(let n of e.entries)t[n.key]=_t(n.value);return t}throw Error(`unexpected value in parser result: ${typeof e}`)}function vt(e){if(e===null||typeof e==`boolean`||typeof e==`number`||typeof e==`string`)return e;if(n(e))return{type:`Quantity`,value:e.value,unit:{px:e.unit.px,s:e.unit.s}};if(Array.isArray(e))return e.map(vt);if(typeof e==`object`){let t={};for(let[n,r]of Object.entries(e))r!==void 0&&(t[n]=vt(r));return t}return e}function $(e,t){let n=e.entries.find(e=>e.key===t);if(!n)throw Error(`missing key ${t}`);return n.value}function yt(e,t){let n=$(e,t);if(typeof n!=`boolean`)throw Error(`${t} must be a boolean`);return n}function bt(e,t){let n=$(e,t);if(typeof n!=`string`)throw Error(`${t} must be a string`);return n}function xt(e,t){let n=$(e,t);if(typeof n!=`number`)throw Error(`${t} must be a number`);return n}function St(e,t,n){return gt(ft(`${e.replace(/\ntokenize\s*$/,`
+`)}${t.replace(/\nparse\s*$/,`
+`)}parse(__source())\n`,{maxSteps:5e7,maxCallDepth:2e3,builtins:{__source:()=>n,__number:e=>{let t=e[0];if(typeof t!=`string`)throw Error(`__number expects a string`);return Number(t)}}}))}self.onmessage=e=>{let{id:t,source:n,engine:r}=e.data,i=performance.now();try{if(r===`typescript`){let e=ht(H(n)),a=performance.now()-i;self.postMessage({id:t,engine:r,ms:a,program:e});return}let e=St(`# Self-hosted Spool lexer. Same tokens as the TypeScript lexer:
+# type, lexeme, line, column. On failure returns an error map.
+
+fn keywords() {
+  return {
+    "let": "LET", "if": "IF", "else": "ELSE", "while": "WHILE", "repeat": "REPEAT",
+    "for": "FOR", "in": "IN", "fn": "FN", "return": "RETURN", "and": "AND", "or": "OR",
+    "not": "NOT", "true": "TRUE", "false": "FALSE", "record": "RECORD", "match": "MATCH",
+    "use": "USE", "on": "ON", "entity": "ENTITY", "spawn": "SPAWN", "at": "AT",
+    "despawn": "DESPAWN", "each": "EACH", "where": "WHERE", "when": "WHEN",
+    "touches": "TOUCHES", "task": "TASK", "wait": "WAIT", "until": "UNTIL",
+    "every": "EVERY", "after": "AFTER", "rewind": "REWIND"
+  }
+}
+
+fn isDigit(c) {
+  if c == "" { return false }
+  let n = ord(c)
+  return n >= 48 and n <= 57
+}
+
+fn isAlpha(c) {
+  if c == "" { return false }
+  let n = ord(c)
+  return (n >= 97 and n <= 122) or (n >= 65 and n <= 90) or n == 95
+}
+
+fn isAlphaNumeric(c) {
+  return isAlpha(c) or isDigit(c)
+}
+
+fn atEnd(st) {
+  return st["current"] >= len(st["source"])
+}
+
+fn peek(st) {
+  if atEnd(st) { return "" }
+  return st["source"][st["current"]]
+}
+
+fn peekNext(st) {
+  let i = st["current"] + 1
+  if i >= len(st["source"]) { return "" }
+  return st["source"][i]
+}
+
+fn advance(st) {
+  let c = st["source"][st["current"]]
+  st["current"] = st["current"] + 1
+  if c == "\\n" {
+    st["line"] = st["line"] + 1
+    st["column"] = 1
+  } else {
+    if c == char(13) {
+      if peek(st) == "\\n" { st["current"] = st["current"] + 1 }
+      st["line"] = st["line"] + 1
+      st["column"] = 1
+    } else {
+      st["column"] = st["column"] + 1
+    }
+  }
+  return c
+}
+
+fn matchChar(st, expected) {
+  if peek(st) != expected { return false }
+  advance(st)
+  return true
+}
+
+fn fail(st, code, detail, line, column) {
+  st["failed"] = true
+  st["code"] = code
+  st["detail"] = detail
+  st["errLine"] = line
+  st["errColumn"] = column
+}
+
+fn addToken(st, type) {
+  let lexeme = slice(st["source"], st["start"], st["current"])
+  push(st["tokens"], { "type": type, "lexeme": lexeme, "line": st["line"], "column": st["tokenColumn"] })
+}
+
+fn addTokenAt(st, type, lexeme, line, column) {
+  push(st["tokens"], { "type": type, "lexeme": lexeme, "line": line, "column": column })
+}
+
+fn skipWhitespaceAndComments(st) {
+  while not atEnd(st) {
+    let c = peek(st)
+    if c == " " or c == "\\t" or c == char(13) or c == "\\n" {
+      advance(st)
+    } else {
+      if c == "#" {
+        while not atEnd(st) and peek(st) != "\\n" and peek(st) != char(13) {
+          advance(st)
+        }
+      } else {
+        return
+      }
+    }
+  }
+}
+
+fn unitSuffix(st) {
+  let rest = slice(st["source"], st["current"], len(st["source"]))
+  if len(rest) >= 4 {
+    if slice(rest, 0, 4) == "px/s" {
+      let next = ""
+      if len(rest) > 4 { next = rest[4] }
+      if not isAlphaNumeric(next) {
+        repeat 4 { advance(st) }
+        return "px/s"
+      }
+    }
+  }
+  if len(rest) >= 2 {
+    if slice(rest, 0, 2) == "px" {
+      let next = ""
+      if len(rest) > 2 { next = rest[2] }
+      if not isAlphaNumeric(next) {
+        advance(st)
+        advance(st)
+        return "px"
+      }
+    }
+  }
+  if len(rest) >= 1 {
+    if rest[0] == "s" {
+      let next = ""
+      if len(rest) > 1 { next = rest[1] }
+      if not isAlphaNumeric(next) {
+        advance(st)
+        return "s"
+      }
+    }
+  }
+  return ""
+}
+
+fn number(st) {
+  while isDigit(peek(st)) { advance(st) }
+  if peek(st) == "." and isDigit(peekNext(st)) {
+    advance(st)
+    while isDigit(peek(st)) { advance(st) }
+  } else {
+    if peek(st) == "." and peekNext(st) != "." {
+      fail(st, "E0001", "Unexpected character '.'", st["line"], st["column"])
+      return
+    }
+  }
+  unitSuffix(st)
+  if st["failed"] { return }
+  addToken(st, "NUMBER")
+}
+
+fn identifier(st) {
+  while isAlphaNumeric(peek(st)) { advance(st) }
+  let lexeme = slice(st["source"], st["start"], st["current"])
+  let table = keywords()
+  let type = "IDENTIFIER"
+  # Maps throw on missing keys, so probe with a loop over known words.
+  for k in table {
+    if k == lexeme { type = table[k] }
+  }
+  addTokenAt(st, type, lexeme, st["line"], st["tokenColumn"])
+  # Fix line field: token line should be the start line, stored when token began.
+  # addTokenAt used st["line"] which may have moved only within an identifier (never).
+  let last = st["tokens"][len(st["tokens"]) - 1]
+  last["line"] = st["line"]
+  last["column"] = st["tokenColumn"]
+}
+
+fn scanHole(st, line, column) {
+  let depth = 1
+  while depth > 0 {
+    skipWhitespaceAndComments(st)
+    if atEnd(st) {
+      fail(st, "E0005", "Unterminated interpolation. Add a closing }", line, column)
+      return
+    }
+    st["start"] = st["current"]
+    st["tokenColumn"] = st["column"]
+    let before = len(st["tokens"])
+    scanToken(st)
+    if st["failed"] { return }
+    let i = before
+    while i < len(st["tokens"]) {
+      let token = st["tokens"][i]
+      if token["type"] == "LBRACE" { depth = depth + 1 }
+      if token["type"] == "RBRACE" { depth = depth - 1 }
+      i = i + 1
+    }
+  }
+  pop(st["tokens"])
+}
+
+fn stringLit(st) {
+  let startLine = st["line"]
+  let startColumn = st["tokenColumn"]
+  let value = ""
+  let templated = false
+  let pieceLine = st["line"]
+  let pieceColumn = st["column"]
+
+  while not atEnd(st) and peek(st) != "\\"" and peek(st) != "\\n" and peek(st) != char(13) {
+    if peek(st) == char(123) {
+      let kind = "TEMPLATE_HEAD"
+      let useLine = startLine
+      let useColumn = startColumn
+      if templated {
+        kind = "TEMPLATE_MIDDLE"
+        useLine = pieceLine
+        useColumn = pieceColumn
+      }
+      addTokenAt(st, kind, value, useLine, useColumn)
+      templated = true
+      let holeLine = st["line"]
+      let holeColumn = st["column"]
+      advance(st)
+      value = ""
+      scanHole(st, holeLine, holeColumn)
+      if st["failed"] { return }
+      pieceLine = st["line"]
+      pieceColumn = st["column"]
+    } else {
+      if peek(st) == "\\\\" {
+        let escapeColumn = st["column"]
+        advance(st)
+        let esc = peek(st)
+        if esc == "" or esc == "\\n" or esc == char(13) {
+          fail(st, "E0002", "Unterminated string escape", st["line"], escapeColumn)
+          return
+        }
+        advance(st)
+        if esc == "n" { value = value + "\\n" }
+        else {
+          if esc == "t" { value = value + "\\t" }
+          else {
+            if esc == "\\\\" { value = value + "\\\\" }
+            else {
+              if esc == "\\"" { value = value + "\\"" }
+              else {
+                if esc == char(123) { value = value + char(123) }
+                else {
+                  if esc == char(125) { value = value + char(125) }
+                  else {
+                    fail(st, "E0003", "Unknown string escape '\\\\" + esc + "'", st["line"], escapeColumn)
+                    return
+                  }
+                }
+              }
+            }
+          }
+        }
+      } else {
+        value = value + advance(st)
+      }
+    }
+  }
+
+  if peek(st) != "\\"" {
+    fail(st, "E0004", "Unterminated string. Add a closing quote", startLine, startColumn)
+    return
+  }
+  advance(st)
+  if not templated {
+    let lexeme = slice(st["source"], st["start"], st["current"])
+    addTokenAt(st, "STRING", lexeme, startLine, startColumn)
+    return
+  }
+  addTokenAt(st, "TEMPLATE_TAIL", value, pieceLine, pieceColumn)
+}
+
+fn scanToken(st) {
+  let c = advance(st)
+  if c == "+" {
+    if matchChar(st, "=") { addToken(st, "PLUS_ASSIGN") } else { addToken(st, "PLUS") }
+    return
+  }
+  if c == "-" {
+    if matchChar(st, "=") { addToken(st, "MINUS_ASSIGN") } else { addToken(st, "MINUS") }
+    return
+  }
+  if c == "*" {
+    if matchChar(st, "=") { addToken(st, "STAR_ASSIGN") } else { addToken(st, "STAR") }
+    return
+  }
+  if c == "/" { addToken(st, "SLASH") return }
+  if c == "%" { addToken(st, "PERCENT") return }
+  if c == "(" { addToken(st, "LPAREN") return }
+  if c == ")" { addToken(st, "RPAREN") return }
+  if c == char(123) { addToken(st, "LBRACE") return }
+  if c == char(125) { addToken(st, "RBRACE") return }
+  if c == "[" { addToken(st, "LBRACKET") return }
+  if c == "]" { addToken(st, "RBRACKET") return }
+  if c == "," { addToken(st, "COMMA") return }
+  if c == "." {
+    if matchChar(st, ".") { addToken(st, "DOTDOT") } else { addToken(st, "DOT") }
+    return
+  }
+  if c == ":" { addToken(st, "COLON") return }
+  if c == "|" {
+    if matchChar(st, ">") { addToken(st, "PIPE") return }
+    fail(st, "E0001", "Unexpected character '|'", st["line"], st["column"] - 1)
+    return
+  }
+  if c == "=" {
+    if matchChar(st, ">") { addToken(st, "ARROW") return }
+    if matchChar(st, "=") { addToken(st, "EQ") } else { addToken(st, "ASSIGN") }
+    return
+  }
+  if c == "<" {
+    if matchChar(st, "=") { addToken(st, "LTE") } else { addToken(st, "LT") }
+    return
+  }
+  if c == ">" {
+    if matchChar(st, "=") { addToken(st, "GTE") } else { addToken(st, "GT") }
+    return
+  }
+  if c == "!" {
+    if matchChar(st, "=") { addToken(st, "NOT_EQ") return }
+    fail(st, "E0001", "Unexpected character '!'", st["line"], st["column"] - 1)
+    return
+  }
+  if c == "\\"" {
+    stringLit(st)
+    return
+  }
+  if isDigit(c) {
+    number(st)
+    return
+  }
+  if isAlpha(c) {
+    identifier(st)
+    return
+  }
+  fail(st, "E0001", "Unexpected character '" + c + "'", st["line"], st["column"] - 1)
+}
+
+fn tokenize(source) {
+  let st = {
+    "source": source,
+    "start": 0,
+    "current": 0,
+    "line": 1,
+    "column": 1,
+    "tokenColumn": 1,
+    "tokens": [],
+    "failed": false,
+    "code": "",
+    "detail": "",
+    "errLine": 0,
+    "errColumn": 0
+  }
+  while not atEnd(st) {
+    skipWhitespaceAndComments(st)
+    if not atEnd(st) {
+      st["start"] = st["current"]
+      st["tokenColumn"] = st["column"]
+      scanToken(st)
+      if st["failed"] {
+        return {
+          "ok": false,
+          "code": st["code"],
+          "detail": st["detail"],
+          "line": st["errLine"],
+          "column": st["errColumn"]
+        }
+      }
+    }
+  }
+  push(st["tokens"], { "type": "EOF", "lexeme": "", "line": st["line"], "column": st["column"] })
+  return { "ok": true, "tokens": st["tokens"] }
+}
+
+tokenize
+`,`# Self-hosted Spool parser. Expects tokenize() from lexer.spool (concatenate sources).
+# AST nodes are plain maps with type names matching src/ast.ts.
+# Quantities: {"type":"Quantity","value":n,"unit":{"px":a,"s":b}}.
+
+fn nil() {
+  return
+}
+
+fn max2(a, b) {
+  if a > b { return a }
+  return b
+}
+
+fn isDigitChar(c) {
+  if c == "" { return false }
+  let n = ord(c)
+  return n >= 48 and n <= 57
+}
+
+fn hasKey(m, key) {
+  for k in m {
+    if k == key { return true }
+  }
+  return false
+}
+
+fn contains(arr, item) {
+  for x in arr {
+    if x == item { return true }
+  }
+  return false
+}
+
+fn parseFloatStr(s) {
+  return __number(s)
+}
+
+fn unitFromSuffix(suffix) {
+  if suffix == "px" { return { "px": 1, "s": 0 } }
+  if suffix == "s" { return { "px": 0, "s": 1 } }
+  if suffix == "px/s" { return { "px": 1, "s": -1 } }
+  return { "px": 0, "s": 0 }
+}
+
+fn parseNumberLiteral(lexeme) {
+  let i = 0
+  while i < len(lexeme) and isDigitChar(lexeme[i]) { i = i + 1 }
+  if i < len(lexeme) and lexeme[i] == "." {
+    i = i + 1
+    while i < len(lexeme) and isDigitChar(lexeme[i]) { i = i + 1 }
+  }
+  let numText = slice(lexeme, 0, i)
+  let value = parseFloatStr(numText)
+  let suffix = slice(lexeme, i, len(lexeme))
+  if suffix == "" { return { "qty": false, "value": value, "unit": { "px": 0, "s": 0 } } }
+  return { "qty": true, "value": value, "unit": unitFromSuffix(suffix) }
+}
+
+fn numberValue(parsed) {
+  if parsed["qty"] {
+    return { "type": "Quantity", "value": parsed["value"], "unit": parsed["unit"] }
+  }
+  return parsed["value"]
+}
+
+fn decodeString(lexeme) {
+  let inner = slice(lexeme, 1, len(lexeme) - 1)
+  let value = ""
+  let i = 0
+  while i < len(inner) {
+    if inner[i] == "\\\\" {
+      let esc = inner[i + 1]
+      if esc == "n" { value = value + "\\n" }
+      else {
+        if esc == "t" { value = value + "\\t" }
+        else {
+          if esc == "\\\\" { value = value + "\\\\" }
+          else {
+            if esc == "\\"" { value = value + "\\"" }
+            else {
+              if esc == char(123) { value = value + char(123) }
+              else {
+                if esc == char(125) { value = value + char(125) }
+                else { value = value + esc }
+              }
+            }
+          }
+        }
+      }
+      i = i + 2
+    } else {
+      value = value + inner[i]
+      i = i + 1
+    }
+  }
+  return value
+}
+
+fn builtinArity(name) {
+  if name == "forward" { return 1 }
+  if name == "back" { return 1 }
+  if name == "turn" { return 1 }
+  if name == "penup" { return 0 }
+  if name == "pendown" { return 0 }
+  if name == "color" { return 1 }
+  if name == "width" { return 1 }
+  if name == "goto" { return 2 }
+  if name == "print" { return 1 }
+  return -1
+}
+
+fn binaryInfo(type) {
+  if type == "PIPE" { return { "found": true, "operator": "|>", "precedence": 0 } }
+  if type == "OR" { return { "found": true, "operator": "or", "precedence": 1 } }
+  if type == "AND" { return { "found": true, "operator": "and", "precedence": 2 } }
+  if type == "EQ" { return { "found": true, "operator": "==", "precedence": 4 } }
+  if type == "NOT_EQ" { return { "found": true, "operator": "!=", "precedence": 4 } }
+  if type == "LT" { return { "found": true, "operator": "<", "precedence": 4 } }
+  if type == "GT" { return { "found": true, "operator": ">", "precedence": 4 } }
+  if type == "LTE" { return { "found": true, "operator": "<=", "precedence": 4 } }
+  if type == "GTE" { return { "found": true, "operator": ">=", "precedence": 4 } }
+  if type == "PLUS" { return { "found": true, "operator": "+", "precedence": 5 } }
+  if type == "MINUS" { return { "found": true, "operator": "-", "precedence": 5 } }
+  if type == "STAR" { return { "found": true, "operator": "*", "precedence": 6 } }
+  if type == "SLASH" { return { "found": true, "operator": "/", "precedence": 6 } }
+  if type == "PERCENT" { return { "found": true, "operator": "%", "precedence": 6 } }
+  return { "found": false, "operator": "", "precedence": 0 }
+}
+
+fn unaryInfo(type) {
+  if type == "NOT" { return { "found": true, "operator": "not", "precedence": 3 } }
+  if type == "MINUS" { return { "found": true, "operator": "-", "precedence": 7 } }
+  return { "found": false, "operator": "", "precedence": 0 }
+}
+
+fn failParse(p, code, detail, line, column) {
+  p["failed"] = true
+  p["code"] = code
+  p["detail"] = detail
+  p["errLine"] = line
+  p["errColumn"] = column
+}
+
+fn pAtEnd(p) {
+  return pPeek(p)["type"] == "EOF"
+}
+
+fn tokenAt(p, i) {
+  let n = len(p["tokens"])
+  if i >= n { return p["tokens"][n - 1] }
+  if i < 0 { return p["tokens"][0] }
+  return p["tokens"][i]
+}
+
+fn pPeek(p) {
+  return tokenAt(p, p["current"])
+}
+
+fn pPeekNext(p) {
+  return tokenAt(p, p["current"] + 1)
+}
+
+fn pAdvance(p) {
+  let token = pPeek(p)
+  if not pAtEnd(p) { p["current"] = p["current"] + 1 }
+  return token
+}
+
+fn check(p, type) {
+  return pPeek(p)["type"] == type
+}
+
+fn expected(p, what) {
+  let token = pPeek(p)
+  let found = "end of input"
+  if token["type"] != "EOF" { found = "'" + token["lexeme"] + "'" }
+  failParse(p, "E0105", "Expected " + what + ", got " + found, token["line"], token["column"])
+}
+
+fn unexpected(p) {
+  let token = pPeek(p)
+  if token["type"] == "EOF" {
+    failParse(p, "E0106", "Unexpected end of input", token["line"], token["column"])
+  } else {
+    failParse(p, "E0107", "Unexpected token '" + token["lexeme"] + "'", token["line"], token["column"])
+  }
+}
+
+fn consume(p, type, what) {
+  if not check(p, type) {
+    expected(p, what)
+    return pPeek(p)
+  }
+  return pAdvance(p)
+}
+
+fn span(p, start) {
+  let end = tokenAt(p, max2(p["current"] - 1, 0))
+  return {
+    "line": start["line"],
+    "column": start["column"],
+    "endLine": end["line"],
+    "endColumn": end["column"] + len(end["lexeme"])
+  }
+}
+
+fn spanFrom(node) {
+  let endLine = node["line"]
+  let endColumn = node["column"]
+  if hasKey(node, "endLine") { endLine = node["endLine"] }
+  if hasKey(node, "endColumn") { endColumn = node["endColumn"] }
+  return {
+    "line": node["line"],
+    "column": node["column"],
+    "endLine": endLine,
+    "endColumn": endColumn
+  }
+}
+
+fn mergeLoc(node, loc) {
+  node["line"] = loc["line"]
+  node["column"] = loc["column"]
+  node["endLine"] = loc["endLine"]
+  node["endColumn"] = loc["endColumn"]
+  return node
+}
+
+fn endOf(node) {
+  if hasKey(node, "endLine") { return { "line": node["endLine"], "column": node["endColumn"] } }
+  return { "line": node["line"], "column": node["column"] }
+}
+
+fn startsExpression(p) {
+  let t = pPeek(p)["type"]
+  return t == "NUMBER" or t == "STRING" or t == "TRUE" or t == "FALSE" or t == "IDENTIFIER" or t == "MINUS" or t == "NOT" or t == "LPAREN" or t == "LBRACKET" or t == "LBRACE" or t == "FN" or t == "MATCH" or t == "SPAWN" or t == "TEMPLATE_HEAD"
+}
+
+fn beforeBlock(p, parseFn) {
+  let previous = p["braceIsBlock"]
+  p["braceIsBlock"] = true
+  let result = parseFn()
+  p["braceIsBlock"] = previous
+  return result
+}
+
+fn parameter(p, soFar) {
+  let token = consume(p, "IDENTIFIER", "a parameter name")
+  if p["failed"] { return { "name": "", "line": 0, "column": 0 } }
+  for param in soFar {
+    if param["name"] == token["lexeme"] {
+      failParse(p, "E0102", "Duplicate parameter '" + token["lexeme"] + "'", token["line"], token["column"])
+      return { "name": token["lexeme"], "line": token["line"], "column": token["column"] }
+    }
+  }
+  return { "name": token["lexeme"], "line": token["line"], "column": token["column"] }
+}
+
+fn parameterList(p) {
+  let params = []
+  if check(p, "RPAREN") { return params }
+  push(params, parameter(p, params))
+  if p["failed"] { return params }
+  while check(p, "COMMA") {
+    pAdvance(p)
+    push(params, parameter(p, params))
+    if p["failed"] { return params }
+  }
+  return params
+}
+
+fn fieldName(p, seen) {
+  let token = consume(p, "IDENTIFIER", "a field name")
+  if p["failed"] { return "" }
+  if contains(seen, token["lexeme"]) {
+    failParse(p, "E0109", "Field '" + token["lexeme"] + "' is repeated", token["line"], token["column"])
+  }
+  return token["lexeme"]
+}
+
+fn fieldNames(p) {
+  let names = []
+  if check(p, "RBRACE") { return names }
+  push(names, fieldName(p, names))
+  if p["failed"] { return names }
+  while check(p, "COMMA") {
+    pAdvance(p)
+    push(names, fieldName(p, names))
+    if p["failed"] { return names }
+  }
+  return names
+}
+
+fn fieldInit(p, seen) {
+  let token = consume(p, "IDENTIFIER", "a field name")
+  if p["failed"] { return { "name": "", "value": nil(), "line": 0, "column": 0 } }
+  if hasKey(seen, token["lexeme"]) {
+    failParse(p, "E0109", "Field '" + token["lexeme"] + "' is repeated", token["line"], token["column"])
+    return { "name": token["lexeme"], "value": nil(), "line": token["line"], "column": token["column"] }
+  }
+  seen[token["lexeme"]] = true
+  consume(p, "COLON", "':'")
+  if p["failed"] { return { "name": token["lexeme"], "value": nil(), "line": token["line"], "column": token["column"] } }
+  let value = climb(p, 0)
+  return { "name": token["lexeme"], "value": value, "line": token["line"], "column": token["column"] }
+}
+
+fn block(p) {
+  let brace = consume(p, "LBRACE", "'" + char(123) + "'")
+  if p["failed"] { return { "type": "BlockStmt", "statements": [], "line": 0, "column": 0, "endLine": 0, "endColumn": 0 } }
+  let statements = []
+  while not check(p, "RBRACE") and not pAtEnd(p) {
+    if check(p, "ELSE") {
+      failParse(p, "E0101", "Expected '" + char(125) + "' before 'else'", pPeek(p)["line"], pPeek(p)["column"])
+      return { "type": "BlockStmt", "statements": statements, "line": brace["line"], "column": brace["column"], "endLine": brace["line"], "endColumn": brace["column"] }
+    }
+    push(statements, statement(p))
+    if p["failed"] { return { "type": "BlockStmt", "statements": statements, "line": brace["line"], "column": brace["column"], "endLine": brace["line"], "endColumn": brace["column"] } }
+  }
+  consume(p, "RBRACE", "'" + char(125) + "'")
+  let loc = span(p, brace)
+  return { "type": "BlockStmt", "statements": statements, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn letStatement(p) {
+  let keyword = pAdvance(p)
+  let name = consume(p, "IDENTIFIER", "a variable name")
+  if p["failed"] { return nil() }
+  consume(p, "ASSIGN", "'='")
+  if p["failed"] { return nil() }
+  let value = climb(p, 0)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "LetStmt", "name": name["lexeme"], "value": value, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn assignStatement(p) {
+  let name = pAdvance(p)
+  consume(p, "ASSIGN", "'='")
+  if p["failed"] { return nil() }
+  let value = climb(p, 0)
+  if p["failed"] { return nil() }
+  let loc = span(p, name)
+  return { "type": "AssignStmt", "name": name["lexeme"], "op": nil(), "value": value, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn ifStatement(p) {
+  let keyword = pAdvance(p)
+  let condition = beforeBlock(p, fn() { return climb(p, 0) })
+  if p["failed"] { return nil() }
+  let thenBranch = block(p)
+  if p["failed"] { return nil() }
+  let elseBranch = nil()
+  if check(p, "ELSE") {
+    pAdvance(p)
+    elseBranch = block(p)
+    if p["failed"] { return nil() }
+  }
+  let loc = span(p, keyword)
+  return { "type": "IfStmt", "condition": condition, "thenBranch": thenBranch, "elseBranch": elseBranch, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn whileStatement(p) {
+  let keyword = pAdvance(p)
+  let condition = beforeBlock(p, fn() { return climb(p, 0) })
+  if p["failed"] { return nil() }
+  let body = block(p)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "WhileStmt", "condition": condition, "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn forStatement(p) {
+  let keyword = pAdvance(p)
+  let name = consume(p, "IDENTIFIER", "a variable name")
+  if p["failed"] { return nil() }
+  consume(p, "IN", "'in'")
+  if p["failed"] { return nil() }
+  let start = beforeBlock(p, fn() { return climb(p, 0) })
+  if p["failed"] { return nil() }
+  if not check(p, "DOTDOT") {
+    let body = block(p)
+    if p["failed"] { return nil() }
+    let loc = span(p, keyword)
+    return { "type": "ForInStmt", "name": name["lexeme"], "collection": start, "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+  }
+  pAdvance(p)
+  let end = beforeBlock(p, fn() { return climb(p, 0) })
+  if p["failed"] { return nil() }
+  let body = block(p)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "ForStmt", "name": name["lexeme"], "start": start, "end": end, "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn entityStatement(p) {
+  let keyword = pAdvance(p)
+  let name = consume(p, "IDENTIFIER", "an entity name")
+  if p["failed"] { return nil() }
+  consume(p, "LBRACE", "'" + char(123) + "'")
+  if p["failed"] { return nil() }
+  let fields = fieldNames(p)
+  if p["failed"] { return nil() }
+  consume(p, "RBRACE", "'" + char(125) + "'")
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "EntityStmt", "name": name["lexeme"], "fields": fields, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn despawnStatement(p) {
+  let keyword = pAdvance(p)
+  let target = climb(p, 0)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "DespawnStmt", "entity": target, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn eachStatement(p) {
+  let keyword = pAdvance(p)
+  let name = consume(p, "IDENTIFIER", "a variable name")
+  if p["failed"] { return nil() }
+  consume(p, "IN", "'in'")
+  if p["failed"] { return nil() }
+  let typeName = consume(p, "IDENTIFIER", "an entity name")
+  if p["failed"] { return nil() }
+  let whereExpr = nil()
+  if check(p, "WHERE") {
+    pAdvance(p)
+    whereExpr = beforeBlock(p, fn() { return climb(p, 0) })
+    if p["failed"] { return nil() }
+  }
+  let body = block(p)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "EachStmt", "name": name["lexeme"], "typeName": typeName["lexeme"], "where": whereExpr, "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn rewindStatement(p) {
+  let keyword = pAdvance(p)
+  let time = climb(p, 0)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "RewindStmt", "time": time, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn whenStatement(p) {
+  let keyword = pAdvance(p)
+  let left = consume(p, "IDENTIFIER", "a variable name")
+  if p["failed"] { return nil() }
+  consume(p, "IN", "'in'")
+  if p["failed"] { return nil() }
+  let leftType = consume(p, "IDENTIFIER", "an entity name")
+  if p["failed"] { return nil() }
+  consume(p, "TOUCHES", "'touches'")
+  if p["failed"] { return nil() }
+  let right = consume(p, "IDENTIFIER", "a variable name")
+  if p["failed"] { return nil() }
+  consume(p, "IN", "'in'")
+  if p["failed"] { return nil() }
+  let rightType = consume(p, "IDENTIFIER", "an entity name")
+  if p["failed"] { return nil() }
+  let body = block(p)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "WhenStmt", "left": left["lexeme"], "leftType": leftType["lexeme"], "right": right["lexeme"], "rightType": rightType["lexeme"], "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn taskStatement(p) {
+  let keyword = pAdvance(p)
+  let name = consume(p, "IDENTIFIER", "a task name")
+  if p["failed"] { return nil() }
+  let body = block(p)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "TaskStmt", "name": name["lexeme"], "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn waitStatement(p) {
+  let keyword = pAdvance(p)
+  if check(p, "UNTIL") {
+    pAdvance(p)
+    let condition = climb(p, 0)
+    if p["failed"] { return nil() }
+    let loc = span(p, keyword)
+    return { "type": "WaitStmt", "condition": condition, "time": nil(), "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+  }
+  let time = climb(p, 0)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "WaitStmt", "condition": nil(), "time": time, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn everyStatement(p) {
+  let keyword = pAdvance(p)
+  let interval = beforeBlock(p, fn() { return climb(p, 0) })
+  if p["failed"] { return nil() }
+  let body = block(p)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "EveryStmt", "interval": interval, "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn afterStatement(p) {
+  let keyword = pAdvance(p)
+  let delay = beforeBlock(p, fn() { return climb(p, 0) })
+  if p["failed"] { return nil() }
+  let body = block(p)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "AfterStmt", "delay": delay, "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn onStatement(p) {
+  let keyword = pAdvance(p)
+  let kind = consume(p, "IDENTIFIER", "'start', 'tick', 'key', or 'key_up'")
+  if p["failed"] { return nil() }
+  if kind["lexeme"] == "start" {
+    let body = block(p)
+    if p["failed"] { return nil() }
+    let loc = span(p, keyword)
+    return { "type": "OnStmt", "event": "start", "param": nil(), "key": nil(), "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+  }
+  if kind["lexeme"] == "tick" {
+    consume(p, "LPAREN", "'('")
+    if p["failed"] { return nil() }
+    let param = consume(p, "IDENTIFIER", "a parameter name")
+    if p["failed"] { return nil() }
+    consume(p, "RPAREN", "')'")
+    if p["failed"] { return nil() }
+    let body = block(p)
+    if p["failed"] { return nil() }
+    let loc = span(p, keyword)
+    return { "type": "OnStmt", "event": "tick", "param": param["lexeme"], "key": nil(), "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+  }
+  if kind["lexeme"] == "key" or kind["lexeme"] == "key_up" {
+    let keyTok = consume(p, "STRING", "a key name")
+    if p["failed"] { return nil() }
+    let key = decodeString(keyTok["lexeme"])
+    let body = block(p)
+    if p["failed"] { return nil() }
+    let loc = span(p, keyword)
+    return { "type": "OnStmt", "event": kind["lexeme"], "param": nil(), "key": key, "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+  }
+  failParse(p, "E0101", "Expected 'start', 'tick', 'key', or 'key_up'", kind["line"], kind["column"])
+  return nil()
+}
+
+fn useStatement(p) {
+  let keyword = pAdvance(p)
+  let name = consume(p, "IDENTIFIER", "a module name")
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "UseStmt", "name": name["lexeme"], "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn recordStatement(p) {
+  let keyword = pAdvance(p)
+  let name = consume(p, "IDENTIFIER", "a record name")
+  if p["failed"] { return nil() }
+  consume(p, "LBRACE", "'" + char(123) + "'")
+  if p["failed"] { return nil() }
+  let fields = fieldNames(p)
+  if p["failed"] { return nil() }
+  consume(p, "RBRACE", "'" + char(125) + "'")
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "RecordStmt", "name": name["lexeme"], "fields": fields, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn repeatStatement(p) {
+  let keyword = pAdvance(p)
+  let count = beforeBlock(p, fn() { return climb(p, 0) })
+  if p["failed"] { return nil() }
+  let body = block(p)
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "RepeatStmt", "count": count, "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn fnStatement(p) {
+  let keyword = pAdvance(p)
+  let name = consume(p, "IDENTIFIER", "a function name")
+  if p["failed"] { return nil() }
+  consume(p, "LPAREN", "'('")
+  if p["failed"] { return nil() }
+  let params = parameterList(p)
+  if p["failed"] { return nil() }
+  consume(p, "RPAREN", "')'")
+  if p["failed"] { return nil() }
+  p["fnDepth"] = p["fnDepth"] + 1
+  let body = block(p)
+  p["fnDepth"] = p["fnDepth"] - 1
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "FnStmt", "name": name["lexeme"], "params": params, "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn returnStatement(p) {
+  let keyword = pAdvance(p)
+  if p["fnDepth"] == 0 {
+    failParse(p, "E0103", "return must be inside a function", keyword["line"], keyword["column"])
+    return nil()
+  }
+  let value = nil()
+  if startsExpression(p) {
+    value = climb(p, 0)
+    if p["failed"] { return nil() }
+  }
+  let loc = span(p, keyword)
+  return { "type": "ReturnStmt", "value": value, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn commandStatement(p) {
+  if not check(p, "IDENTIFIER") { return nil() }
+  let name = pPeek(p)
+  let arity = builtinArity(name["lexeme"])
+  let next = pPeekNext(p)["type"]
+  if arity < 0 or next == "LPAREN" or next == "LBRACKET" or next == "ASSIGN" or next == "PLUS_ASSIGN" or next == "MINUS_ASSIGN" or next == "STAR_ASSIGN" {
+    return nil()
+  }
+  pAdvance(p)
+  let args = []
+  let i = 0
+  while i < arity {
+    push(args, climb(p, 0))
+    if p["failed"] { return nil() }
+    i = i + 1
+  }
+  let callee = {
+    "type": "VariableExpr",
+    "name": name["lexeme"],
+    "line": name["line"],
+    "column": name["column"],
+    "endLine": name["line"],
+    "endColumn": name["column"] + len(name["lexeme"])
+  }
+  let loc = span(p, name)
+  let expression = {
+    "type": "CallExpr",
+    "callee": callee,
+    "args": args,
+    "line": loc["line"],
+    "column": loc["column"],
+    "endLine": loc["endLine"],
+    "endColumn": loc["endColumn"]
+  }
+  return { "type": "ExprStmt", "expression": expression, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn expressionStatement(p) {
+  let expression = climb(p, 0)
+  if p["failed"] { return nil() }
+  let updating = check(p, "ASSIGN") or check(p, "PLUS_ASSIGN") or check(p, "MINUS_ASSIGN") or check(p, "STAR_ASSIGN")
+  if not updating {
+    let loc = spanFrom(expression)
+    return { "type": "ExprStmt", "expression": expression, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+  }
+  let token = pAdvance(p)
+  let op = nil()
+  if token["type"] == "PLUS_ASSIGN" { op = "+" }
+  else {
+    if token["type"] == "MINUS_ASSIGN" { op = "-" }
+    else {
+      if token["type"] == "STAR_ASSIGN" { op = "*" }
+    }
+  }
+  let value = climb(p, 0)
+  if p["failed"] { return nil() }
+  let location = spanFrom(expression)
+  let valueEnd = endOf(value)
+  location["endLine"] = valueEnd["line"]
+  location["endColumn"] = valueEnd["column"]
+  if expression["type"] == "VariableExpr" {
+    return { "type": "AssignStmt", "name": expression["name"], "op": op, "value": value, "line": location["line"], "column": location["column"], "endLine": location["endLine"], "endColumn": location["endColumn"] }
+  }
+  if expression["type"] == "IndexExpr" {
+    return { "type": "IndexAssignStmt", "object": expression["object"], "index": expression["index"], "op": op, "value": value, "line": location["line"], "column": location["column"], "endLine": location["endLine"], "endColumn": location["endColumn"] }
+  }
+  if expression["type"] == "FieldExpr" {
+    return { "type": "FieldAssignStmt", "object": expression["object"], "name": expression["name"], "op": op, "value": value, "nameLine": expression["nameLine"], "nameColumn": expression["nameColumn"], "line": location["line"], "column": location["column"], "endLine": location["endLine"], "endColumn": location["endColumn"] }
+  }
+  failParse(p, "E0108", "Only a name, an index, or a field can be assigned to", expression["line"], expression["column"])
+  return nil()
+}
+
+fn statement(p) {
+  if check(p, "LET") { return letStatement(p) }
+  if check(p, "IF") { return ifStatement(p) }
+  if check(p, "WHILE") { return whileStatement(p) }
+  if check(p, "REPEAT") { return repeatStatement(p) }
+  if check(p, "FOR") { return forStatement(p) }
+  if check(p, "RECORD") { return recordStatement(p) }
+  if check(p, "USE") { return useStatement(p) }
+  if check(p, "ON") { return onStatement(p) }
+  if check(p, "ENTITY") { return entityStatement(p) }
+  if check(p, "DESPAWN") { return despawnStatement(p) }
+  if check(p, "EACH") { return eachStatement(p) }
+  if check(p, "WHEN") { return whenStatement(p) }
+  if check(p, "TASK") { return taskStatement(p) }
+  if check(p, "WAIT") { return waitStatement(p) }
+  if check(p, "EVERY") { return everyStatement(p) }
+  if check(p, "AFTER") { return afterStatement(p) }
+  if check(p, "REWIND") { return rewindStatement(p) }
+  if check(p, "FN") and pPeekNext(p)["type"] == "IDENTIFIER" { return fnStatement(p) }
+  if check(p, "RETURN") { return returnStatement(p) }
+  if check(p, "IDENTIFIER") and pPeekNext(p)["type"] == "ASSIGN" { return assignStatement(p) }
+  let command = commandStatement(p)
+  if command != nil() { return command }
+  return expressionStatement(p)
+}
+
+fn looksLikeRecord(p) {
+  if not check(p, "LBRACE") { return false }
+  let field = tokenAt(p, p["current"] + 1)
+  let colon = tokenAt(p, p["current"] + 2)
+  if field["type"] == "IDENTIFIER" and colon["type"] == "COLON" { return true }
+  return not p["braceIsBlock"] and field["type"] == "RBRACE"
+}
+
+fn finishField(p, object) {
+  pAdvance(p)
+  let name = consume(p, "IDENTIFIER", "a field name")
+  if p["failed"] { return object }
+  return {
+    "type": "FieldExpr",
+    "object": object,
+    "name": name["lexeme"],
+    "nameLine": name["line"],
+    "nameColumn": name["column"],
+    "line": object["line"],
+    "column": object["column"],
+    "endLine": name["line"],
+    "endColumn": name["column"] + len(name["lexeme"])
+  }
+}
+
+fn finishIndex(p, object) {
+  pAdvance(p)
+  let index = climb(p, 0)
+  if p["failed"] { return object }
+  consume(p, "RBRACKET", "']'")
+  if p["failed"] { return object }
+  let end = tokenAt(p, max2(p["current"] - 1, 0))
+  return {
+    "type": "IndexExpr",
+    "object": object,
+    "index": index,
+    "line": object["line"],
+    "column": object["column"],
+    "endLine": end["line"],
+    "endColumn": end["column"] + len(end["lexeme"])
+  }
+}
+
+fn finishCall(p, callee) {
+  pAdvance(p)
+  let args = []
+  if not check(p, "RPAREN") {
+    push(args, climb(p, 0))
+    if p["failed"] { return callee }
+    while check(p, "COMMA") {
+      pAdvance(p)
+      push(args, climb(p, 0))
+      if p["failed"] { return callee }
+    }
+  }
+  consume(p, "RPAREN", "')'")
+  if p["failed"] { return callee }
+  let end = tokenAt(p, max2(p["current"] - 1, 0))
+  return {
+    "type": "CallExpr",
+    "callee": callee,
+    "args": args,
+    "line": callee["line"],
+    "column": callee["column"],
+    "endLine": end["line"],
+    "endColumn": end["column"] + len(end["lexeme"])
+  }
+}
+
+fn recordLiteral(p, nameExpr) {
+  pAdvance(p)
+  let fields = []
+  let seen = {}
+  if not check(p, "RBRACE") {
+    push(fields, fieldInit(p, seen))
+    if p["failed"] { return nameExpr }
+    while check(p, "COMMA") {
+      pAdvance(p)
+      push(fields, fieldInit(p, seen))
+      if p["failed"] { return nameExpr }
+    }
+  }
+  consume(p, "RBRACE", "'" + char(125) + "'")
+  if p["failed"] { return nameExpr }
+  let end = tokenAt(p, max2(p["current"] - 1, 0))
+  return {
+    "type": "RecordExpr",
+    "name": nameExpr["name"],
+    "fields": fields,
+    "line": nameExpr["line"],
+    "column": nameExpr["column"],
+    "endLine": end["line"],
+    "endColumn": end["column"] + len(end["lexeme"])
+  }
+}
+
+fn spawnExpr(p) {
+  let keyword = pAdvance(p)
+  let name = consume(p, "IDENTIFIER", "an entity name")
+  if p["failed"] { return nil() }
+  consume(p, "AT", "'at'")
+  if p["failed"] { return nil() }
+  consume(p, "LPAREN", "'('")
+  if p["failed"] { return nil() }
+  let x = climb(p, 0)
+  if p["failed"] { return nil() }
+  consume(p, "COMMA", "','")
+  if p["failed"] { return nil() }
+  let y = climb(p, 0)
+  if p["failed"] { return nil() }
+  consume(p, "RPAREN", "')'")
+  if p["failed"] { return nil() }
+  consume(p, "LBRACE", "'" + char(123) + "'")
+  if p["failed"] { return nil() }
+  let fields = []
+  let seen = {}
+  if not check(p, "RBRACE") {
+    push(fields, fieldInit(p, seen))
+    if p["failed"] { return nil() }
+    while check(p, "COMMA") {
+      pAdvance(p)
+      push(fields, fieldInit(p, seen))
+      if p["failed"] { return nil() }
+    }
+  }
+  consume(p, "RBRACE", "'" + char(125) + "'")
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "SpawnExpr", "name": name["lexeme"], "x": x, "y": y, "fields": fields, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn mapKey(p) {
+  let token = pPeek(p)
+  if token["type"] == "IDENTIFIER" {
+    pAdvance(p)
+    return { "text": token["lexeme"], "line": token["line"], "column": token["column"] }
+  }
+  if token["type"] == "STRING" {
+    pAdvance(p)
+    return { "text": decodeString(token["lexeme"]), "line": token["line"], "column": token["column"] }
+  }
+  expected(p, "a key")
+  return { "text": "", "line": token["line"], "column": token["column"] }
+}
+
+fn mapEntry(p, seen) {
+  let key = mapKey(p)
+  if p["failed"] { return { "key": "", "value": nil(), "line": 0, "column": 0 } }
+  if hasKey(seen, key["text"]) {
+    failParse(p, "E0109", "Key '" + key["text"] + "' is repeated", key["line"], key["column"])
+    return { "key": key["text"], "value": nil(), "line": key["line"], "column": key["column"] }
+  }
+  seen[key["text"]] = true
+  consume(p, "COLON", "':'")
+  if p["failed"] { return { "key": key["text"], "value": nil(), "line": key["line"], "column": key["column"] } }
+  let value = climb(p, 0)
+  return { "key": key["text"], "value": value, "line": key["line"], "column": key["column"] }
+}
+
+fn mapLiteral(p) {
+  let brace = pAdvance(p)
+  let entries = []
+  let seen = {}
+  if not check(p, "RBRACE") {
+    push(entries, mapEntry(p, seen))
+    if p["failed"] { return nil() }
+    while check(p, "COMMA") {
+      pAdvance(p)
+      push(entries, mapEntry(p, seen))
+      if p["failed"] { return nil() }
+    }
+  }
+  consume(p, "RBRACE", "'" + char(125) + "'")
+  if p["failed"] { return nil() }
+  let loc = span(p, brace)
+  return { "type": "MapExpr", "entries": entries, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn template(p) {
+  let head = pAdvance(p)
+  let parts = [{ "type": "text", "text": head["lexeme"] }]
+  let cont = true
+  while cont {
+    push(parts, { "type": "hole", "expr": climb(p, 0) })
+    if p["failed"] { return nil() }
+    if check(p, "TEMPLATE_MIDDLE") {
+      let mid = pAdvance(p)
+      push(parts, { "type": "text", "text": mid["lexeme"] })
+    } else {
+      let tail = consume(p, "TEMPLATE_TAIL", "the rest of the string")
+      if p["failed"] { return nil() }
+      push(parts, { "type": "text", "text": tail["lexeme"] })
+      cont = false
+    }
+  }
+  let loc = span(p, head)
+  return { "type": "InterpExpr", "parts": parts, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn bindName(p, name, names, token) {
+  if hasKey(names, name) {
+    failParse(p, "E0109", "Name '" + name + "' is bound twice in one pattern", token["line"], token["column"])
+  }
+  names[name] = true
+}
+
+fn patternField(p, names, seen) {
+  let token = consume(p, "IDENTIFIER", "a field name")
+  if p["failed"] { return { "name": "", "pattern": nil() } }
+  if hasKey(seen, token["lexeme"]) {
+    failParse(p, "E0109", "Field '" + token["lexeme"] + "' is repeated", token["line"], token["column"])
+    return { "name": token["lexeme"], "pattern": nil() }
+  }
+  seen[token["lexeme"]] = true
+  consume(p, "COLON", "':'")
+  if p["failed"] { return { "name": token["lexeme"], "pattern": nil() } }
+  return { "name": token["lexeme"], "pattern": pattern(p, names) }
+}
+
+fn vecPattern(p, names) {
+  let token = pAdvance(p)
+  consume(p, "LPAREN", "'('")
+  if p["failed"] { return nil() }
+  let x = pattern(p, names)
+  if p["failed"] { return nil() }
+  consume(p, "COMMA", "','")
+  if p["failed"] { return nil() }
+  let y = pattern(p, names)
+  if p["failed"] { return nil() }
+  consume(p, "RPAREN", "')'")
+  if p["failed"] { return nil() }
+  return { "type": "vec", "x": x, "y": y, "line": token["line"], "column": token["column"] }
+}
+
+fn recordPattern(p, names) {
+  let token = pAdvance(p)
+  consume(p, "LBRACE", "'" + char(123) + "'")
+  if p["failed"] { return nil() }
+  let fields = []
+  let seen = {}
+  if not check(p, "RBRACE") {
+    push(fields, patternField(p, names, seen))
+    if p["failed"] { return nil() }
+    while check(p, "COMMA") {
+      pAdvance(p)
+      push(fields, patternField(p, names, seen))
+      if p["failed"] { return nil() }
+    }
+  }
+  consume(p, "RBRACE", "'" + char(125) + "'")
+  if p["failed"] { return nil() }
+  return { "type": "record", "name": token["lexeme"], "fields": fields, "line": token["line"], "column": token["column"] }
+}
+
+fn pattern(p, names) {
+  if check(p, "MINUS") {
+    let sign = pAdvance(p)
+    let token = consume(p, "NUMBER", "a number")
+    if p["failed"] { return nil() }
+    let lit = parseNumberLiteral(token["lexeme"])
+    if lit["qty"] {
+      return { "type": "quantity", "value": 0 - lit["value"], "unit": lit["unit"], "line": sign["line"], "column": sign["column"] }
+    }
+    return { "type": "literal", "value": 0 - lit["value"], "line": sign["line"], "column": sign["column"] }
+  }
+  let token = pPeek(p)
+  if token["type"] == "NUMBER" {
+    pAdvance(p)
+    let lit = parseNumberLiteral(token["lexeme"])
+    if lit["qty"] {
+      return { "type": "quantity", "value": lit["value"], "unit": lit["unit"], "line": token["line"], "column": token["column"] }
+    }
+    return { "type": "literal", "value": lit["value"], "line": token["line"], "column": token["column"] }
+  }
+  if token["type"] == "STRING" {
+    pAdvance(p)
+    return { "type": "literal", "value": decodeString(token["lexeme"]), "line": token["line"], "column": token["column"] }
+  }
+  if token["type"] == "TRUE" or token["type"] == "FALSE" {
+    pAdvance(p)
+    return { "type": "literal", "value": token["type"] == "TRUE", "line": token["line"], "column": token["column"] }
+  }
+  if token["type"] == "IDENTIFIER" and token["lexeme"] == "_" {
+    pAdvance(p)
+    return { "type": "wild", "line": token["line"], "column": token["column"] }
+  }
+  if token["type"] == "IDENTIFIER" and token["lexeme"] == "vec" and pPeekNext(p)["type"] == "LPAREN" {
+    return vecPattern(p, names)
+  }
+  if token["type"] == "IDENTIFIER" and pPeekNext(p)["type"] == "LBRACE" {
+    return recordPattern(p, names)
+  }
+  if token["type"] == "IDENTIFIER" {
+    pAdvance(p)
+    bindName(p, token["lexeme"], names, token)
+    return { "type": "bind", "name": token["lexeme"], "line": token["line"], "column": token["column"] }
+  }
+  expected(p, "a pattern")
+  return nil()
+}
+
+fn matchExpr(p) {
+  let keyword = pAdvance(p)
+  let scrutinee = climb(p, 0)
+  if p["failed"] { return nil() }
+  consume(p, "LBRACE", "'" + char(123) + "'")
+  if p["failed"] { return nil() }
+  if check(p, "RBRACE") {
+    expected(p, "a pattern")
+    return nil()
+  }
+  let arms = []
+  while not check(p, "RBRACE") and not pAtEnd(p) {
+    let names = {}
+    let pat = pattern(p, names)
+    if p["failed"] { return nil() }
+    let arrow = consume(p, "ARROW", "'=>'")
+    if p["failed"] { return nil() }
+    let body = climb(p, 0)
+    if p["failed"] { return nil() }
+    push(arms, { "pattern": pat, "body": body, "line": arrow["line"], "column": arrow["column"] })
+  }
+  consume(p, "RBRACE", "'" + char(125) + "'")
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "MatchExpr", "scrutinee": scrutinee, "arms": arms, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn arrayLiteral(p) {
+  let bracket = pAdvance(p)
+  let elements = []
+  if not check(p, "RBRACKET") {
+    push(elements, climb(p, 0))
+    if p["failed"] { return nil() }
+    while check(p, "COMMA") {
+      pAdvance(p)
+      push(elements, climb(p, 0))
+      if p["failed"] { return nil() }
+    }
+  }
+  consume(p, "RBRACKET", "']'")
+  if p["failed"] { return nil() }
+  let loc = span(p, bracket)
+  return { "type": "ArrayExpr", "elements": elements, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn functionExpr(p) {
+  let keyword = pAdvance(p)
+  consume(p, "LPAREN", "'('")
+  if p["failed"] { return nil() }
+  let params = parameterList(p)
+  if p["failed"] { return nil() }
+  consume(p, "RPAREN", "')'")
+  if p["failed"] { return nil() }
+  p["fnDepth"] = p["fnDepth"] + 1
+  let body = block(p)
+  p["fnDepth"] = p["fnDepth"] - 1
+  if p["failed"] { return nil() }
+  let loc = span(p, keyword)
+  return { "type": "FnExpr", "params": params, "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn atom(p) {
+  let token = pPeek(p)
+  if token["type"] == "NUMBER" {
+    pAdvance(p)
+    let loc = span(p, token)
+    return { "type": "LiteralExpr", "value": numberValue(parseNumberLiteral(token["lexeme"])), "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+  }
+  if token["type"] == "STRING" {
+    pAdvance(p)
+    let loc = span(p, token)
+    return { "type": "LiteralExpr", "value": decodeString(token["lexeme"]), "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+  }
+  if token["type"] == "SPAWN" { return spawnExpr(p) }
+  if token["type"] == "TEMPLATE_HEAD" { return template(p) }
+  if token["type"] == "MATCH" { return matchExpr(p) }
+  if token["type"] == "LBRACE" { return mapLiteral(p) }
+  if token["type"] == "TRUE" or token["type"] == "FALSE" {
+    pAdvance(p)
+    let loc = span(p, token)
+    return { "type": "LiteralExpr", "value": token["type"] == "TRUE", "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+  }
+  if token["type"] == "IDENTIFIER" {
+    pAdvance(p)
+    let loc = span(p, token)
+    return { "type": "VariableExpr", "name": token["lexeme"], "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+  }
+  if token["type"] == "LBRACKET" { return arrayLiteral(p) }
+  if token["type"] == "FN" { return functionExpr(p) }
+  if token["type"] == "LPAREN" {
+    pAdvance(p)
+    let expr = climb(p, 0)
+    if p["failed"] { return nil() }
+    if pPeek(p)["type"] != "RPAREN" {
+      expected(p, "')'")
+      return nil()
+    }
+    pAdvance(p)
+    return expr
+  }
+  expected(p, "an expression")
+  return nil()
+}
+
+fn postfix(p, expr) {
+  let cont = true
+  while cont {
+    if p["failed"] { return expr }
+    if check(p, "LPAREN") { expr = finishCall(p, expr) }
+    else {
+      if check(p, "LBRACKET") { expr = finishIndex(p, expr) }
+      else {
+        if check(p, "DOT") { expr = finishField(p, expr) }
+        else {
+          if expr["type"] == "VariableExpr" and looksLikeRecord(p) { expr = recordLiteral(p, expr) }
+          else { cont = false }
+        }
+      }
+    }
+  }
+  return expr
+}
+
+fn primary(p) {
+  return postfix(p, atom(p))
+}
+
+fn prefix(p, minPrec) {
+  let token = pPeek(p)
+  let unary = unaryInfo(token["type"])
+  if not unary["found"] or unary["precedence"] < minPrec { return primary(p) }
+  pAdvance(p)
+  let operand = climb(p, unary["precedence"])
+  if p["failed"] { return nil() }
+  let end = endOf(operand)
+  return {
+    "type": "UnaryExpr",
+    "operator": unary["operator"],
+    "operand": operand,
+    "line": token["line"],
+    "column": token["column"],
+    "endLine": end["line"],
+    "endColumn": end["column"]
+  }
+}
+
+fn climb(p, minPrec) {
+  let left = prefix(p, minPrec)
+  if p["failed"] { return left }
+  let cont = true
+  while cont {
+    if p["failed"] { return left }
+    let infix = binaryInfo(pPeek(p)["type"])
+    if not infix["found"] or infix["precedence"] < minPrec {
+      cont = false
+    } else {
+      let operator = pAdvance(p)
+      let right = climb(p, infix["precedence"] + 1)
+      if p["failed"] { return left }
+      let end = endOf(right)
+      left = {
+        "type": "BinaryExpr",
+        "operator": infix["operator"],
+        "left": left,
+        "right": right,
+        "line": operator["line"],
+        "column": operator["column"],
+        "endLine": end["line"],
+        "endColumn": end["column"]
+      }
+    }
+  }
+  return left
+}
+
+fn parseProgram(p) {
+  let start = pPeek(p)
+  let body = []
+  while not pAtEnd(p) {
+    push(body, statement(p))
+    if p["failed"] { return nil() }
+  }
+  let loc = span(p, start)
+  return { "type": "Program", "body": body, "line": loc["line"], "column": loc["column"], "endLine": loc["endLine"], "endColumn": loc["endColumn"] }
+}
+
+fn parse(source) {
+  let lex = tokenize(source)
+  if not lex["ok"] {
+    return {
+      "ok": false,
+      "code": lex["code"],
+      "detail": lex["detail"],
+      "line": lex["line"],
+      "column": lex["column"]
+    }
+  }
+  let p = {
+    "tokens": lex["tokens"],
+    "current": 0,
+    "fnDepth": 0,
+    "braceIsBlock": false,
+    "failed": false,
+    "code": "",
+    "detail": "",
+    "errLine": 0,
+    "errColumn": 0
+  }
+  let program = parseProgram(p)
+  if p["failed"] {
+    return {
+      "ok": false,
+      "code": p["code"],
+      "detail": p["detail"],
+      "line": p["errLine"],
+      "column": p["errColumn"]
+    }
+  }
+  return { "ok": true, "program": program }
+}
+
+parse
+`,n),a=performance.now()-i;if(!e.ok){self.postMessage({id:t,engine:r,ms:a,error:{code:e.code,detail:e.detail,line:e.line,column:e.column,message:`${e.code}: ${e.detail} (line ${e.line}, column ${e.column})`}});return}self.postMessage({id:t,engine:r,ms:a,program:e.program})}catch(e){let n=performance.now()-i;if(e instanceof A){self.postMessage({id:t,engine:r,ms:n,error:{code:e.code,detail:e.detail,line:e.line,column:e.column,message:e.message}});return}self.postMessage({id:t,engine:r,ms:n,error:{code:`E0100`,detail:e instanceof Error?e.message:`Parse failed`,line:1,column:1,message:e instanceof Error?e.message:`Parse failed`}})}}})();
