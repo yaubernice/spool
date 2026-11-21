@@ -177,7 +177,7 @@ Runtime guards: a step limit and a call-depth limit, so an infinite loop or a ru
 
 **Two backends, one language.** The tree-walker is easy to read: each AST node is a function. The VM is there so the playground can show bytecode and so a tight recursive program can run faster. Tests call both and expect the same values, the same errors, and the same drawings. The optimizer is off in those tests. The playground turns both passes on, and a separate test checks that the gallery still draws with the passes on. Division by zero is not folded, so `1 / 0` still fails at the `/`.
 
-**Closures share the scope object.** A function remembers the environment it was created in, not a copy of the values. That is why a named function can call itself: the name is written into that environment before the call. A `for` loop copies the counter into a fresh scope on every pass, so a function created in the body keeps that pass's `i`. Resolving names at run time costs a scope walk, and it means the compiler does not have to number slots. That trade is why a tiny loop does not get faster on the VM. A benchmark table is a later phase.
+**Closures share the scope object.** A function remembers the environment it was created in, not a copy of the values. That is why a named function can call itself: the name is written into that environment before the call. A `for` loop copies the counter into a fresh scope on every pass, so a function created in the body keeps that pass's `i`. Resolving names at run time costs a scope walk, and it means the compiler does not have to number slots. That trade is why a tiny loop does not get faster on the VM. The Bench tab times it.
 
 **The debugger pauses on statements, and that trace is a recording.** Both engines yield before each statement. The page stores up to 10,000 of those pauses, with the variables, the call stack, and how many turtle strokes existed. Dragging the timeline draws the strokes from the start up to that pause. It does not restart the machine at that point. Step forward along the recording until the live end, and only then does another statement run. If the cap is hit, the run continues and the timeline says later steps were not recorded.
 
@@ -187,7 +187,7 @@ Runtime guards: a step limit and a call-depth limit, so an infinite loop or a ru
 
 ## Where this is going
 
-`use`, the 60Hz clock, `draw`, `input`, entities, tasks, and `audio` are in the language. `draw` records shapes. The page paints them on the animation frame, after the update. A task waits on the game clock, not the wall clock. `audio` records cues. The page plays them, and rewind stays silent. A running game can restore an earlier frame. Five games in the gallery are written in Spool. The playground can already show bytecode and scrub a recorded trace of a drawing. Those stay. A measured benchmark table and a demo GIF belong to a later phase.
+`use`, the 60Hz clock, `draw`, `input`, entities, tasks, and `audio` are in the language. `draw` records shapes. The page paints them on the animation frame, after the update. A task waits on the game clock, not the wall clock. `audio` records cues. The page plays them, and rewind stays silent. A running game can restore an earlier frame. Five games in the gallery are written in Spool. The Bench tab times the tree-walker against the VM, in a worker, and the status bar shows the last frame's update time and how many entities are alive. The Bytecode tab shows the program before and after constant folding. A published table of those times, a language reference, and a demo GIF are still ahead.
 
 ### Gallery
 
@@ -200,6 +200,10 @@ Click a game name to load it and see the source. The stage takes the keys. **R**
 | Breakout | Left, right, or the mouse |
 | Asteroids | Left and right turn, up thrusts, space shoots |
 | Flappy | Space flaps |
+
+### Benchmarks
+
+Open the Bench tab and press **Run benchmarks**. A worker times `fib(27)`, a nested loop of `1 + 2`, and 1,000 entities updated for 20 ticks. Each cell is the median of several runs. The speedup is the tree-walk time divided by the VM time. The same pane says how many instructions constant folding removes from `1 + 2 * 3`. While a game is playing, the status bar shows `frame 1.2 ms` for the last update and `3 entities` for how many are alive.
 
 ### draw and input
 

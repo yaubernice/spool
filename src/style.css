@@ -450,6 +450,7 @@ canvas:focus {
 
 .statusbar {
   display: flex;
+  flex-wrap: wrap;
   gap: 16px;
   padding: 4px 12px;
   background: var(--status);

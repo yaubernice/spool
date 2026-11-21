@@ -1,7 +1,4 @@
-import { benchOptions, benchPrograms, medianMilliseconds } from '../benchmark.ts'
-import type { Value } from '../interpreter.ts'
-import { interpret } from '../interpreter.ts'
-import { interpretVm } from '../vm.ts'
+import { benchPrograms, medianMilliseconds, runBench, type BenchEngine, type BenchProgram } from '../benchmark.ts'
 
 export interface BenchRow {
   name: string
@@ -15,13 +12,9 @@ export interface BenchRow {
 self.onmessage = () => {
   try {
     for (const program of benchPrograms) {
-      const tree = sample(() => interpret(program.source, benchOptions), program.expect, program.name)
-      const vm = sample(() => interpretVm(program.source, benchOptions), program.expect, program.name)
-      const optimized = sample(
-        () => interpretVm(program.source, { ...benchOptions, optimize: { fold: true, dce: true } }),
-        program.expect,
-        program.name,
-      )
+      const tree = sample(program, 'tree')
+      const vm = sample(program, 'vm')
+      const optimized = sample(program, 'opt')
       const row: BenchRow = {
         name: program.name,
         tree,
@@ -38,9 +31,8 @@ self.onmessage = () => {
   }
 }
 
-function sample(run: () => Value, expect: number, name: string): number {
+function sample(program: BenchProgram, engine: BenchEngine): number {
   return medianMilliseconds(() => {
-    const value = run()
-    if (value !== expect) throw new Error(`${name} returned ${String(value)}`)
-  }, benchPrograms.find((program) => program.name === name)?.times ?? 5)
+    runBench(program, engine)
+  }, program.times)
 }

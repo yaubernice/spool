@@ -1,4 +1,5 @@
 import './style.css'
+import { foldCounts } from './benchmark.ts'
 import { disassemble } from './bytecode.ts'
 import type { KeyEvent } from './clock.ts'
 import { compile } from './compile.ts'
@@ -115,7 +116,8 @@ app.innerHTML = `
           </div>
           <div class="tab-pane bench" data-pane="bench" hidden>
             <button id="bench-run" type="button">Run benchmarks</button>
-            <p id="bench-status" class="pane-note">Tree-walk, VM, and VM with both passes. Sorting 5000 numbers takes several minutes. The page stays responsive.</p>
+            <p id="bench-fold" class="pane-note"></p>
+            <p id="bench-status" class="pane-note">Tree-walk, the VM, and the VM with both passes. Each time is the median of several runs. The page stays responsive.</p>
             <div id="bench-table"></div>
           </div>
         </section>
@@ -127,6 +129,8 @@ app.innerHTML = `
       <span id="stat-tokens">0 tokens</span>
       <span id="stat-nodes">0 nodes</span>
       <span id="stat-ms">— ms</span>
+      <span id="stat-frame">—</span>
+      <span id="stat-entities">0 entities</span>
       <span id="stat-steps">0 steps</span>
       <span id="stat-depth">depth 0</span>
     </footer>
@@ -149,8 +153,11 @@ const foldBox = document.querySelector<HTMLInputElement>('#pass-fold')!
 const dceBox = document.querySelector<HTMLInputElement>('#pass-dce')!
 const bytecodeView = document.querySelector<HTMLElement>('#bytecode-view')!
 const benchButton = document.querySelector<HTMLButtonElement>('#bench-run')!
+const benchFold = document.querySelector<HTMLElement>('#bench-fold')!
 const benchStatus = document.querySelector<HTMLElement>('#bench-status')!
 const benchTable = document.querySelector<HTMLElement>('#bench-table')!
+const folded = foldCounts()
+benchFold.textContent = `Constant folding turns "${folded.source}" from ${folded.before} instructions to ${folded.after}. The Bytecode tab shows the open program before and after.`
 const runState = document.querySelector<HTMLSpanElement>('#run-state')!
 const canvas = document.querySelector<HTMLCanvasElement>('#canvas')!
 const exampleRow = document.querySelector<HTMLDivElement>('#examples')!
@@ -385,6 +392,7 @@ function run(): void {
       renderScopes(panes.variables, end.scopes)
       renderEntities(panes.entities, end.entities)
       renderStack(panes.stack, end.stack)
+      setLive(null, end.entities.length)
     }
     playback = playDrawing(canvas, strokes, unitsPerSecond, turtle, () => {
       if (runState.textContent === 'Drawing…') runState.textContent = 'Done'
@@ -466,6 +474,7 @@ function startClock(opened: ReturnType<typeof openVm>, turtle: Turtle): void {
     acc += Math.min(now - last, 100)
     last = now
     let guard = 0
+    const frameStarted = performance.now()
     try {
       while (acc >= stepMs && guard < 5) {
         acc -= stepMs
@@ -496,6 +505,7 @@ function startClock(opened: ReturnType<typeof openVm>, turtle: Turtle): void {
     prints = turtle.prints
     showConsole(null)
     runState.textContent = `Playing · frame ${inputLog.length}`
+    setLive(performance.now() - frameStarted, view.entities.length)
     clock = requestAnimationFrame(loop)
   }
   inputLog.length = 0
@@ -550,6 +560,7 @@ function showRewind(index: number): void {
   renderScopes(panes.variables, shot.view.scopes)
   renderEntities(panes.entities, shot.view.entities)
   renderStack(panes.stack, shot.view.stack)
+  setLive(null, shot.view.entities.length)
   timeline.value = String(shotIndex)
   if (display.used) paintDisplay(canvas, display)
   runState.textContent = `Rewound · frame ${shot.inputLength}`
@@ -636,6 +647,7 @@ function halt(label: string): void {
     renderScopes(panes.variables, null)
     renderEntities(panes.entities, null)
     renderStack(panes.stack, null)
+    setLive(null, 0)
   }
 }
 
@@ -805,6 +817,12 @@ function setStats(steps: number, depth: number, ms: number | null): void {
   if (ms !== null) document.querySelector('#stat-ms')!.textContent = `${ms.toFixed(1)} ms`
 }
 
+function setLive(frameMs: number | null, entities: number | null): void {
+  document.querySelector('#stat-frame')!.textContent = frameMs === null ? '—' : `frame ${frameMs.toFixed(1)} ms`
+  if (entities === null) return
+  document.querySelector('#stat-entities')!.textContent = entities === 1 ? '1 entity' : `${entities} entities`
+}
+
 function markExamples(code: string): void {
   for (const example of examples) {
     exampleButtons.get(example.name)?.classList.toggle('active', example.code === code)
@@ -930,7 +948,7 @@ function runBenchmarks(): void {
   if (benchWorker) benchWorker.terminate()
   benchRows = []
   renderBench()
-  benchStatus.textContent = 'Running… the page stays responsive. Sorting 5000 numbers takes several minutes.'
+  benchStatus.textContent = 'Running fib(27), a nested loop, and 1,000 entities. The page stays responsive.'
   benchButton.disabled = true
   benchWorker = new Worker(new URL('./playground/bench.worker.ts', import.meta.url), { type: 'module' })
   benchWorker.onmessage = (event: MessageEvent<{ type: string; row?: BenchRow; message?: string }>) => {
