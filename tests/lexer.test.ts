@@ -92,7 +92,7 @@ describe('operators', () => {
 
 describe('keywords', () => {
   it('recognizes reserved words', () => {
-    expect(types('let if else while repeat for in fn return and or not true false record match use on')).toEqual([
+    expect(types('let if else while repeat for in fn return and or not true false record match use on entity spawn at despawn each where when touches')).toEqual([
       'LET',
       'IF',
       'ELSE',
@@ -111,6 +111,14 @@ describe('keywords', () => {
       'MATCH',
       'USE',
       'ON',
+      'ENTITY',
+      'SPAWN',
+      'AT',
+      'DESPAWN',
+      'EACH',
+      'WHERE',
+      'WHEN',
+      'TOUCHES',
       'EOF',
     ])
   })

@@ -32,6 +32,8 @@ function shape(expr: Expr): unknown {
       return ['interp', expr.parts.map((part) => (part.type === 'text' ? part.text : shape(part.expr)))]
     case 'MatchExpr':
       return ['match', shape(expr.scrutinee), expr.arms.length]
+    case 'SpawnExpr':
+      return ['spawn', expr.name, shape(expr.x), shape(expr.y)]
   }
 }
 

@@ -18,6 +18,7 @@ import {
   markInstruction,
   markTreeCursor,
   renderBytecode,
+  renderEntities,
   renderOutput,
   renderScopes,
   renderStack,
@@ -86,6 +87,7 @@ app.innerHTML = `
             <button type="button" class="tab" data-tab="tokens">Tokens</button>
             <button type="button" class="tab" data-tab="ast">AST</button>
             <button type="button" class="tab" data-tab="variables">Variables</button>
+            <button type="button" class="tab" data-tab="entities">Entities</button>
             <button type="button" class="tab" data-tab="stack">Call stack</button>
             <button type="button" class="tab" data-tab="bytecode">Bytecode</button>
             <button type="button" class="tab" data-tab="bench">Bench</button>
@@ -95,6 +97,7 @@ app.innerHTML = `
           <div class="tab-pane" data-pane="tokens" hidden></div>
           <div class="tab-pane" data-pane="ast" hidden></div>
           <div class="tab-pane" data-pane="variables" hidden></div>
+          <div class="tab-pane" data-pane="entities" hidden></div>
           <div class="tab-pane" data-pane="stack" hidden></div>
           <div class="tab-pane" data-pane="bytecode" hidden>
             <div class="passes">
@@ -154,6 +157,7 @@ const panes = {
   tokens: document.querySelector<HTMLElement>('[data-pane="tokens"]')!,
   ast: document.querySelector<HTMLElement>('[data-pane="ast"]')!,
   variables: document.querySelector<HTMLElement>('[data-pane="variables"]')!,
+  entities: document.querySelector<HTMLElement>('[data-pane="entities"]')!,
   stack: document.querySelector<HTMLElement>('[data-pane="stack"]')!,
   bytecode: document.querySelector<HTMLElement>('[data-pane="bytecode"]')!,
   bench: document.querySelector<HTMLElement>('[data-pane="bench"]')!,
@@ -208,6 +212,7 @@ interface TraceFrame {
   ip: number
   chunk: string
   scopes: ScopeSnapshot[]
+  entities: DebugPause['entities']
   stack: StackFrame[]
   steps: number
   maxCallDepth: number
@@ -335,6 +340,7 @@ function run(): void {
       timeline.max = String(traceIndex)
       timeline.value = String(traceIndex)
       renderScopes(panes.variables, end.scopes)
+      renderEntities(panes.entities, end.entities)
       renderStack(panes.stack, end.stack)
     }
     playback = playDrawing(canvas, strokes, unitsPerSecond, turtle, () => {
@@ -414,6 +420,7 @@ function startClock(opened: ReturnType<typeof openVm>, turtle: Turtle): void {
     else playback = playDrawing(canvas, turtle.strokes, () => Number.POSITIVE_INFINITY, turtle)
     const view = opened.glance()
     renderScopes(panes.variables, view.scopes)
+    renderEntities(panes.entities, view.entities)
     renderStack(panes.stack, view.stack)
     prints = turtle.prints
     showConsole(null)
@@ -477,6 +484,7 @@ function halt(label: string): void {
     timeline.max = '0'
     traceNote.textContent = ''
     renderScopes(panes.variables, null)
+    renderEntities(panes.entities, null)
     renderStack(panes.stack, null)
   }
 }
@@ -547,6 +555,7 @@ function showPause(pauseAt: DebugPause, paint: boolean): void {
   editor.highlightLine(pauseAt.line)
   renderOutput(panes.output, prints)
   renderScopes(panes.variables, pauseAt.scopes)
+  renderEntities(panes.entities, pauseAt.entities)
   renderStack(panes.stack, pauseAt.stack)
   markInstruction(bytecodeView, pauseAt.chunk, pauseAt.ip)
   showConsole(null)
@@ -705,6 +714,7 @@ function frameFrom(pauseAt: DebugPause, turtle: Turtle): TraceFrame {
     ip: pauseAt.ip,
     chunk: pauseAt.chunk,
     scopes: pauseAt.scopes,
+    entities: pauseAt.entities,
     stack: pauseAt.stack,
     steps: pauseAt.steps,
     maxCallDepth: pauseAt.maxCallDepth,
@@ -737,6 +747,7 @@ function showTrace(index: number): void {
   if (frame.line > 0) editor.highlightLine(frame.line)
   else editor.highlightLine(null)
   renderScopes(panes.variables, frame.scopes)
+  renderEntities(panes.entities, frame.entities)
   renderStack(panes.stack, frame.stack)
   markInstruction(bytecodeView, frame.chunk, frame.ip)
   setStats(frame.steps, frame.maxCallDepth, null)

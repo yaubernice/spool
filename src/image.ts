@@ -1,11 +1,13 @@
 import type { Chunk } from './bytecode.ts'
 import {
+  isEntity,
   isMap,
   isModule,
   isQuantity,
   isRecord,
   isRecordType,
   isVec,
+  type EntityValue,
 } from './data.ts'
 import { bindModule, Environment, type FunctionValue, type Value } from './interpreter.ts'
 import type { Host } from './host.ts'
@@ -27,6 +29,7 @@ export interface VmImage {
   frames: { path: number[]; ip: number; parent: number; call: boolean }[]
   calls: { name: string; line: number; column: number }[]
   envs: EnvImage[]
+  ents: Encoded[]
 }
 
 interface EnvImage {
@@ -51,6 +54,8 @@ type Encoded =
   | { t: 'builtin'; name: string }
   | { t: 'fn'; name: string; path: number[]; env: number }
   | { t: 'ref'; id: number }
+  | { t: 'ent'; id: number; name: string; alive: boolean; fields: { k: string; v: Encoded }[] }
+  | { t: 'eref'; id: number }
 
 export interface MachineView {
   root: Chunk
@@ -64,6 +69,7 @@ export interface MachineView {
   globals: Environment
   frames: { chunk: Chunk; ip: number; parentEnv: Environment; call: boolean }[]
   calls: { name: string; line: number; column: number }[]
+  world: EntityValue[]
 }
 
 export function encodeMachine(view: MachineView): VmImage {
@@ -88,9 +94,9 @@ export function encodeMachine(view: MachineView): VmImage {
     else if (isVec(value)) {
       visit(value.x)
       visit(value.y)
-    }
+    } else if (isEntity(value)) Object.values(value.fields).forEach((field) => visit(field as Value))
   }
-  const pending = [view.result, ...view.stack]
+  const pending = [view.result, ...view.stack, ...view.world]
   for (const frame of view.frames) pending.push(...frame.parentEnv.chain().flatMap((env) => env.entries().map(([, value]) => value)))
   let count = -1
   while (ids.size !== count) {
@@ -101,6 +107,7 @@ export function encodeMachine(view: MachineView): VmImage {
   const seen = new Map<object, number>()
   let nextId = 1
   const enc = (value: Value): Encoded => encodeValue(value, view.root, enc, idOf, seen, () => nextId++)
+  const ents = view.world.map(enc)
   const stack = view.stack.map(enc)
   const result = enc(view.result)
   const envs: EnvImage[] = [...ids.entries()]
@@ -127,6 +134,7 @@ export function encodeMachine(view: MachineView): VmImage {
     })),
     calls: view.calls.map((frame) => ({ ...frame })),
     envs,
+    ents,
   }
 }
 
@@ -141,6 +149,7 @@ export function decodeMachine(
   stack: Value[]
   result: Value
   frames: { chunk: Chunk; ip: number; parentEnv: Environment; call: boolean }[]
+  entities: EntityValue[]
 } {
   const shells = new Map<number, Environment>()
   for (const env of image.envs) {
@@ -153,12 +162,23 @@ export function decodeMachine(
     shells.set(env.id, new Environment(parent, env.label))
   }
   const objects = new Map<number, object>()
+  const byId = new Map<number, EntityValue>()
   const dec = (encoded: Encoded): Value =>
     decodeValue(encoded, dec, (id) => {
       const env = shells.get(id)
       if (!env) throw new Error(`Missing environment ${id}`)
       return env
-    }, root, modules, resolveBuiltin, objects)
+    }, root, modules, resolveBuiltin, objects, byId)
+  for (const encoded of image.ents) {
+    if (encoded.t !== 'ent') continue
+    byId.set(encoded.id, { type: 'entity', id: encoded.id, name: encoded.name, alive: encoded.alive, fields: {} })
+  }
+  for (const encoded of image.ents) {
+    if (encoded.t !== 'ent') continue
+    const entity = byId.get(encoded.id)
+    if (!entity) continue
+    for (const field of encoded.fields) entity.fields[field.k] = dec(field.v)
+  }
   for (const env of image.envs) {
     const shell = shells.get(env.id)
     if (!shell) throw new Error(`Missing environment ${env.id}`)
@@ -181,6 +201,11 @@ export function decodeMachine(
       parentEnv: shells.get(frame.parent) ?? globals,
       call: frame.call,
     })),
+    entities: image.ents.flatMap((encoded) => {
+      if (encoded.t !== 'ent') return []
+      const entity = byId.get(encoded.id)
+      return entity && entity.alive ? [entity] : []
+    }),
   }
 }
 
@@ -222,6 +247,17 @@ function encodeValue(
   }
   if (isRecordType(value)) return { t: 'rtype', name: value.name, fields: [...value.fields] }
   if (isModule(value)) return { t: 'mod', name: value.name }
+  if (isEntity(value)) {
+    if (seen.has(value)) return { t: 'eref', id: value.id }
+    seen.set(value, value.id)
+    return {
+      t: 'ent',
+      id: value.id,
+      name: value.name,
+      alive: value.alive,
+      fields: Object.entries(value.fields).map(([key, field]) => ({ k: key, v: enc(field as Value) })),
+    }
+  }
   if (value.type === 'builtin') return { t: 'builtin', name: value.name }
   if (value.type === 'function') {
     if (!value.chunk) throw new Error(`Cannot snapshot tree-walker function ${value.name}`)
@@ -238,6 +274,7 @@ function decodeValue(
   modules: Host['modules'],
   resolveBuiltin: (name: string) => Value,
   objects: Map<number, object>,
+  byId: Map<number, EntityValue>,
 ): Value {
   switch (encoded.t) {
     case 'num':
@@ -282,6 +319,20 @@ function decodeValue(
       return bindModule(modules, encoded.name, { line: 1, column: 1 })
     case 'builtin':
       return resolveBuiltin(encoded.name)
+    case 'eref': {
+      const found = byId.get(encoded.id)
+      if (!found) throw new Error(`Missing entity ${encoded.id}`)
+      return found
+    }
+    case 'ent': {
+      let entity = byId.get(encoded.id)
+      if (!entity) {
+        entity = { type: 'entity', id: encoded.id, name: encoded.name, alive: encoded.alive, fields: {} }
+        byId.set(encoded.id, entity)
+      }
+      for (const field of encoded.fields) entity.fields[field.k] = dec(field.v)
+      return entity
+    }
     case 'fn': {
       const chunk = chunkAt(root, encoded.path)
       const fn: FunctionValue = {

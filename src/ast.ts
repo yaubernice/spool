@@ -183,6 +183,7 @@ export type Expr =
   | RecordExpr
   | InterpExpr
   | MatchExpr
+  | SpawnExpr
 
 /** One parameter of a function, e.g. `s` in `fn square(s)`. */
 export interface Parameter extends SourceLocation {
@@ -293,6 +294,47 @@ export interface ForInStmt extends SourceLocation {
   body: BlockStmt
 }
 
+/** `spawn Ball at (0px, 0px) { r: 2px }`. `x` and `y` come from `at`. */
+export interface SpawnExpr extends SourceLocation {
+  type: 'SpawnExpr'
+  name: string
+  x: Expr
+  y: Expr
+  fields: FieldInit[]
+}
+
+/** `entity Ball { r }`. */
+export interface EntityStmt extends SourceLocation {
+  type: 'EntityStmt'
+  name: string
+  fields: string[]
+}
+
+/** `despawn ball`. */
+export interface DespawnStmt extends SourceLocation {
+  type: 'DespawnStmt'
+  entity: Expr
+}
+
+/** `each ball in Ball where ball.x > 0 { }`. */
+export interface EachStmt extends SourceLocation {
+  type: 'EachStmt'
+  name: string
+  typeName: string
+  where: Expr
+  body: BlockStmt
+}
+
+/** `when ball in Ball touches wall in Wall { }`. */
+export interface WhenStmt extends SourceLocation {
+  type: 'WhenStmt'
+  left: string
+  leftType: string
+  right: string
+  rightType: string
+  body: BlockStmt
+}
+
 /** `on start`, `on tick(dt)`, `on key "space"`, or `on key_up "space"`. */
 export interface OnStmt extends SourceLocation {
   type: 'OnStmt'
@@ -341,6 +383,10 @@ export type Stmt =
   | RecordStmt
   | UseStmt
   | OnStmt
+  | EntityStmt
+  | DespawnStmt
+  | EachStmt
+  | WhenStmt
   | ReturnStmt
   | FnStmt
 

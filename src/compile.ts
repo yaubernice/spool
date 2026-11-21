@@ -114,6 +114,33 @@ class Compiler {
         this.emit(Op.REGISTER, statement, event)
         return
       }
+      case 'EntityStmt':
+        this.emit(Op.PAUSE, statement)
+        for (const field of statement.fields) this.emit(Op.CONST, statement, this.constant(field))
+        this.emit(Op.CONST, statement, this.constant(statement.fields.length))
+        this.emit(Op.ENTITY_TYPE, statement, this.name(statement.name))
+        this.emit(Op.DEFINE, statement, this.name(statement.name))
+        return
+      case 'DespawnStmt':
+        this.emit(Op.PAUSE, statement)
+        this.expression(statement.entity)
+        this.emit(Op.DESPAWN, statement)
+        return
+      case 'EachStmt':
+        this.each(statement)
+        return
+      case 'WhenStmt': {
+        this.emit(Op.PAUSE, statement)
+        this.emit(Op.CONST, statement, this.constant(statement.leftType))
+        this.emit(Op.CONST, statement, this.constant(statement.rightType))
+        const params: Parameter[] = [
+          { name: statement.left, line: statement.line, column: statement.column },
+          { name: statement.right, line: statement.line, column: statement.column },
+        ]
+        this.closure('touches', params, statement.body, statement)
+        this.emit(Op.TOUCH, statement)
+        return
+      }
       case 'FieldAssignStmt':
         this.emit(Op.PAUSE, statement)
         this.expression(statement.object)
@@ -259,6 +286,55 @@ class Compiler {
     this.emit(Op.POP_SCOPE, statement)
   }
 
+  /** `each ball in Ball where cond`. The list is copied once. */
+  private each(statement: Extract<Stmt, { type: 'EachStmt' }>): void {
+    this.emit(Op.PUSH_SCOPE, statement, this.label('each'))
+    this.emit(Op.CONST, statement, this.constant(0))
+    this.emit(Op.DEFINE, statement, this.name('$ready'))
+    this.emit(Op.CONST, statement, this.constant(0))
+    this.emit(Op.DEFINE, statement, this.name('$i'))
+    const loop = this.chunk.code.length
+    this.emit(Op.PAUSE, statement)
+    this.emit(Op.LOAD, statement, this.name('$ready'))
+    this.emit(Op.CONST, statement, this.constant(0))
+    this.emit(Op.EQ, statement)
+    const check = this.emit(Op.JUMP_IF_FALSE, statement)
+    this.emit(Op.CONST, statement, this.constant(1))
+    this.emit(Op.STORE, statement, this.name('$ready'))
+    this.emit(Op.LOAD, statement, this.name(statement.typeName))
+    this.emit(Op.ENTITIES, statement)
+    this.emit(Op.DEFINE, statement, this.name('$items'))
+    this.emit(Op.LOAD, statement, this.name('$items'))
+    this.emit(Op.LEN, statement)
+    this.emit(Op.DEFINE, statement, this.name('$end'))
+    this.patch(check)
+    this.emit(Op.LOAD, statement, this.name('$i'))
+    this.emit(Op.LOAD, statement, this.name('$end'))
+    this.emit(Op.LT, statement)
+    const done = this.emit(Op.JUMP_IF_FALSE, statement)
+    this.emit(Op.PUSH_SCOPE, statement, this.label('each'))
+    this.emit(Op.LOAD, statement, this.name('$items'))
+    this.emit(Op.LOAD, statement, this.name('$i'))
+    this.emit(Op.INDEX, statement)
+    this.emit(Op.DEFINE, statement, this.name(statement.name))
+    this.emit(Op.LOAD, statement, this.name(statement.name))
+    this.emit(Op.ALIVE, statement)
+    const skipDead = this.emit(Op.JUMP_IF_FALSE, statement)
+    this.expression(statement.where)
+    const skipWhere = this.emit(Op.JUMP_IF_FALSE, statement.where)
+    this.block(statement.body)
+    this.patch(skipWhere)
+    this.patch(skipDead)
+    this.emit(Op.POP_SCOPE, statement)
+    this.emit(Op.LOAD, statement, this.name('$i'))
+    this.emit(Op.CONST, statement, this.constant(1))
+    this.emit(Op.ADD, statement)
+    this.emit(Op.STORE, statement, this.name('$i'))
+    this.emit(Op.JUMP, statement, loop)
+    this.patch(done)
+    this.emit(Op.POP_SCOPE, statement)
+  }
+
   private block(block: BlockStmt): void {
     this.emit(Op.PUSH_SCOPE, block, this.label('block'))
     this.statements(block.statements)
@@ -280,6 +356,16 @@ class Compiler {
         return
       case 'VariableExpr':
         this.emit(Op.LOAD, expr, this.name(expr.name))
+        return
+      case 'SpawnExpr':
+        this.expression(expr.x)
+        this.expression(expr.y)
+        this.emit(Op.LOAD, expr, this.name(expr.name))
+        for (const field of expr.fields) {
+          this.emit(Op.CONST, field, this.constant(field.name))
+          this.expression(field.value)
+        }
+        this.emit(Op.SPAWN, expr, expr.fields.length)
         return
       case 'ArrayExpr':
         for (const element of expr.elements) this.expression(element)

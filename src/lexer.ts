@@ -31,6 +31,14 @@ export type TokenType =
   | 'MATCH'
   | 'USE'
   | 'ON'
+  | 'ENTITY'
+  | 'SPAWN'
+  | 'AT'
+  | 'DESPAWN'
+  | 'EACH'
+  | 'WHERE'
+  | 'WHEN'
+  | 'TOUCHES'
   | 'PLUS'
   | 'MINUS'
   | 'STAR'
@@ -89,6 +97,14 @@ const KEYWORDS: Readonly<Record<string, TokenType>> = {
   match: 'MATCH',
   use: 'USE',
   on: 'ON',
+  entity: 'ENTITY',
+  spawn: 'SPAWN',
+  at: 'AT',
+  despawn: 'DESPAWN',
+  each: 'EACH',
+  where: 'WHERE',
+  when: 'WHEN',
+  touches: 'TOUCHES',
 }
 
 /** Turn source text into tokens. Throws LexError on bad input. */

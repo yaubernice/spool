@@ -110,6 +110,41 @@ export function renderOutput(host: HTMLElement, lines: string[]): void {
   host.append(pre)
 }
 
+export function renderEntities(
+  host: HTMLElement,
+  entities: { name: string; id: number; fields: { name: string; value: string }[] }[] | null,
+): void {
+  host.replaceChildren()
+  if (!entities) {
+    host.append(note('Run a program to see entities.'))
+    return
+  }
+  if (entities.length === 0) {
+    host.append(note('No entities.'))
+    return
+  }
+  for (const entity of entities) {
+    const block = document.createElement('section')
+    block.className = 'scope'
+    const title = document.createElement('h3')
+    title.textContent = `${entity.name}#${entity.id}`
+    const list = document.createElement('ul')
+    for (const field of entity.fields) {
+      const item = document.createElement('li')
+      const name = document.createElement('span')
+      name.className = 'bind-name'
+      name.textContent = field.name
+      const value = document.createElement('span')
+      value.className = 'bind-value'
+      value.textContent = field.value
+      item.append(name, value)
+      list.append(item)
+    }
+    block.append(title, list)
+    host.append(block)
+  }
+}
+
 export function renderScopes(host: HTMLElement, scopes: ScopeSnapshot[] | null): void {
   host.replaceChildren()
   if (!scopes) {
@@ -319,6 +354,14 @@ function statementNode(statement: Stmt): TreeNode {
       return make('UseStmt', statement.name, statement, [])
     case 'OnStmt':
       return make('OnStmt', statement.event, statement, [blockNode(statement.body, 'body')])
+    case 'EntityStmt':
+      return make('EntityStmt', statement.name, statement, [])
+    case 'DespawnStmt':
+      return make('DespawnStmt', '', statement, [exprNode(statement.entity)])
+    case 'EachStmt':
+      return make('EachStmt', statement.name, statement, [exprNode(statement.where), blockNode(statement.body, 'body')])
+    case 'WhenStmt':
+      return make('WhenStmt', `${statement.leftType} ${statement.rightType}`, statement, [blockNode(statement.body, 'body')])
     case 'FieldAssignStmt':
       return make('FieldAssignStmt', statement.name, statement, [exprNode(statement.object), exprNode(statement.value)])
     case 'IndexAssignStmt':
@@ -382,6 +425,8 @@ function exprNode(expr: Expr): TreeNode {
       )
     case 'MatchExpr':
       return make('MatchExpr', '', expr, [exprNode(expr.scrutinee), ...expr.arms.map((arm) => exprNode(arm.body))])
+    case 'SpawnExpr':
+      return make('SpawnExpr', expr.name, expr, [exprNode(expr.x), exprNode(expr.y), ...expr.fields.map((field) => exprNode(field.value))])
   }
 }
 
@@ -440,7 +485,14 @@ function countStmt(statement: Stmt): number {
     case 'UseStmt':
       return 1
     case 'OnStmt':
+    case 'WhenStmt':
       return 1 + countBlock(statement.body)
+    case 'EntityStmt':
+      return 1
+    case 'DespawnStmt':
+      return 1 + countExpr(statement.entity)
+    case 'EachStmt':
+      return 1 + countExpr(statement.where) + countBlock(statement.body)
     case 'FieldAssignStmt':
       return 1 + countExpr(statement.object) + countExpr(statement.value)
     case 'IndexAssignStmt':
@@ -483,6 +535,8 @@ function countExpr(expr: Expr): number {
       return 1 + expr.parts.reduce((sum, part) => sum + (part.type === 'hole' ? countExpr(part.expr) : 0), 0)
     case 'MatchExpr':
       return 1 + countExpr(expr.scrutinee) + expr.arms.reduce((sum, arm) => sum + countExpr(arm.body), 0)
+    case 'SpawnExpr':
+      return 1 + countExpr(expr.x) + countExpr(expr.y) + expr.fields.reduce((sum, field) => sum + countExpr(field.value), 0)
   }
 }
 

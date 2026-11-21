@@ -4,6 +4,9 @@ import type {
   BinaryOp,
   BlockStmt,
   CallExpr,
+  DespawnStmt,
+  EachStmt,
+  EntityStmt,
   Expr,
   ExprStmt,
   FieldInit,
@@ -23,11 +26,13 @@ import type {
   MatchExpr,
   Parameter,
   Pattern,
+  SpawnExpr,
   Program,
   RecordExpr,
   RecordStmt,
   OnStmt,
   UseStmt,
+  WhenStmt,
   RepeatStmt,
   ReturnStmt,
   SourceLocation,
@@ -173,6 +178,10 @@ class Parser {
     if (this.check('RECORD')) return this.recordStatement()
     if (this.check('USE')) return this.useStatement()
     if (this.check('ON')) return this.onStatement()
+    if (this.check('ENTITY')) return this.entityStatement()
+    if (this.check('DESPAWN')) return this.despawnStatement()
+    if (this.check('EACH')) return this.eachStatement()
+    if (this.check('WHEN')) return this.whenStatement()
     if (this.check('FN') && this.peekNext().type === 'IDENTIFIER') return this.fnStatement()
     if (this.check('RETURN')) return this.returnStatement()
     if (this.check('IDENTIFIER') && this.peekNext().type === 'ASSIGN') return this.assignStatement()
@@ -236,6 +245,57 @@ class Parser {
     const end = this.beforeBlock(() => this.climb(0))
     const body = this.block()
     return { type: 'ForStmt', name: name.lexeme, start, end, body, ...this.span(keyword) }
+  }
+
+  /** `entity Ball { r }`. */
+  private entityStatement(): EntityStmt {
+    const keyword = this.advance()
+    const name = this.consume('IDENTIFIER', 'an entity name')
+    this.consume('LBRACE', "'{'")
+    const fields = this.fieldNames()
+    this.consume('RBRACE', "'}'")
+    return { type: 'EntityStmt', name: name.lexeme, fields, ...this.span(keyword) }
+  }
+
+  /** `despawn ball`. */
+  private despawnStatement(): DespawnStmt {
+    const keyword = this.advance()
+    const entity = this.climb(0)
+    return { type: 'DespawnStmt', entity, ...this.span(keyword) }
+  }
+
+  /** `each ball in Ball where ball.x > 0 { }`. */
+  private eachStatement(): EachStmt {
+    const keyword = this.advance()
+    const name = this.consume('IDENTIFIER', 'a variable name')
+    this.consume('IN', "'in'")
+    const typeName = this.consume('IDENTIFIER', 'an entity name')
+    this.consume('WHERE', "'where'")
+    const where = this.beforeBlock(() => this.climb(0))
+    const body = this.block()
+    return { type: 'EachStmt', name: name.lexeme, typeName: typeName.lexeme, where, body, ...this.span(keyword) }
+  }
+
+  /** `when ball in Ball touches wall in Wall { }`. */
+  private whenStatement(): WhenStmt {
+    const keyword = this.advance()
+    const left = this.consume('IDENTIFIER', 'a variable name')
+    this.consume('IN', "'in'")
+    const leftType = this.consume('IDENTIFIER', 'an entity name')
+    this.consume('TOUCHES', "'touches'")
+    const right = this.consume('IDENTIFIER', 'a variable name')
+    this.consume('IN', "'in'")
+    const rightType = this.consume('IDENTIFIER', 'an entity name')
+    const body = this.block()
+    return {
+      type: 'WhenStmt',
+      left: left.lexeme,
+      leftType: leftType.lexeme,
+      right: right.lexeme,
+      rightType: rightType.lexeme,
+      body,
+      ...this.span(keyword),
+    }
   }
 
   /** `on tick(dt) { }`. The body is stored and run by the game clock. */
@@ -523,6 +583,7 @@ class Parser {
       return { type: 'LiteralExpr', value: token.literal, ...this.span(token) }
     }
 
+    if (token.type === 'SPAWN') return this.spawnExpr()
     if (token.type === 'TEMPLATE_HEAD') return this.template()
     if (token.type === 'MATCH') return this.matchExpr()
     if (token.type === 'LBRACE') return this.mapLiteral()
@@ -599,6 +660,30 @@ class Parser {
       endLine: name.line,
       endColumn: name.column + name.lexeme.length,
     }
+  }
+
+  /** `spawn Ball at (0px, 0px) { r: 2px }`. */
+  private spawnExpr(): SpawnExpr {
+    const keyword = this.advance()
+    const name = this.consume('IDENTIFIER', 'an entity name')
+    this.consume('AT', "'at'")
+    this.consume('LPAREN', "'('")
+    const x = this.climb(0)
+    this.consume('COMMA', "','")
+    const y = this.climb(0)
+    this.consume('RPAREN', "')'")
+    this.consume('LBRACE', "'{'")
+    const fields: FieldInit[] = []
+    const seen = new Set<string>()
+    if (!this.check('RBRACE')) {
+      fields.push(this.fieldInit(seen))
+      while (this.check('COMMA')) {
+        this.advance()
+        fields.push(this.fieldInit(seen))
+      }
+    }
+    this.consume('RBRACE', "'}'")
+    return { type: 'SpawnExpr', name: name.lexeme, x, y, fields, ...this.span(keyword) }
   }
 
   private recordLiteral(name: Extract<Expr, { type: 'VariableExpr' }>): RecordExpr {
@@ -896,6 +981,7 @@ class Parser {
       this.check('LBRACE') ||
       this.check('FN') ||
       this.check('MATCH') ||
+      this.check('SPAWN') ||
       this.check('TEMPLATE_HEAD')
     )
   }

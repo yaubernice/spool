@@ -13,6 +13,7 @@ import {
   collectionItems,
   formatQuantity,
   getField,
+  isEntityType,
   isMap,
   isQuantity,
   isRecord,
@@ -26,6 +27,8 @@ import {
   sameData,
   setField,
   valueLabel,
+  type EntityTypeValue,
+  type EntityValue,
   type MapValue,
   type Quantity,
   type ModuleValue,
@@ -43,6 +46,7 @@ import { TICK_DT, type KeyEvent } from './clock.ts'
 import type { Host } from './host.ts'
 import { parse } from './parser.ts'
 import { mulberry32 } from './rng.ts'
+import { touchingPairs, World } from './world.ts'
 
 /**
  * Interpreter: walk the AST and run it.
@@ -89,6 +93,8 @@ export type Value =
   | MapValue
   | RecordValue
   | RecordTypeValue
+  | EntityValue
+  | EntityTypeValue
   | ModuleValue
 
 export interface ExecutionStats {
@@ -138,6 +144,8 @@ export interface DebugPause {
   stack: StackFrame[]
   steps: number
   maxCallDepth: number
+  /** Live entities at this pause. */
+  entities: { name: string; id: number; fields: { name: string; value: string }[] }[]
   /** Instruction index when a VM is paused. -1 for the tree-walker. */
   ip: number
   /** Function chunk name when a VM is paused. Empty for the tree-walker. */
@@ -301,6 +309,13 @@ interface Handler {
   fn: FunctionValue
 }
 
+interface TouchRule {
+  left: string
+  right: string
+  at: SourceLocation
+  fn: FunctionValue
+}
+
 /** Thrown only to unwind `return`. The interpreter catches it at the function call. */
 class ReturnSignal {
   constructor(readonly value: Value) {}
@@ -319,6 +334,8 @@ class Interpreter {
   private readonly stack: StackFrame[] = []
   private readonly modules: Host['modules']
   private readonly handlers: Handler[] = []
+  private readonly rules: TouchRule[] = []
+  private readonly world = new World()
   private started = false
 
   constructor(options: InterpretOptions) {
@@ -351,6 +368,9 @@ class Interpreter {
     }
     this.dispatch('tick', quantity(TICK_DT.value, TICK_DT.unit), null)
     for (const event of events) this.dispatch(event.type, null, event.key)
+    const running = this.resolveTouches()
+    let step = running.next()
+    while (!step.done) step = running.next()
   }
 
   private dispatch(event: Handler['event'], arg: Value | null, key: string | null): void {
@@ -369,6 +389,18 @@ class Interpreter {
     }
   }
 
+  private *resolveTouches(): Generator<DebugPause, void, void> {
+    for (const rule of this.rules) {
+      for (const [left, right] of touchingPairs(this.world, rule.left, rule.right, rule.at)) {
+        if (!left.alive || !right.alive) continue
+        const label: Expr = { type: 'VariableExpr', name: 'touches', line: rule.at.line, column: rule.at.column }
+        const running = this.invoke(rule.fn, [left, right], rule.at, label)
+        let step = running.next()
+        while (!step.done) step = running.next()
+      }
+    }
+  }
+
   publish(): void {
     if (!this.stats) return
     this.stats.steps = this.steps
@@ -377,6 +409,7 @@ class Interpreter {
 
   *run(program: Program): Generator<DebugPause, Value, void> {
     for (const statement of program.body) yield* this.execute(statement)
+    yield* this.resolveTouches()
     this.publish()
     return this.result
   }
@@ -439,6 +472,69 @@ class Interpreter {
         yield this.pauseAt(statement)
         this.guardStep(statement)
         this.env.define(statement.name, bindModule(this.modules, statement.name, statement), statement)
+        return
+      }
+      case 'EntityStmt': {
+        yield this.pauseAt(statement)
+        this.guardStep(statement)
+        const type: EntityTypeValue = { type: 'entityType', name: statement.name, fields: [...statement.fields] }
+        this.env.define(statement.name, type, statement)
+        return
+      }
+      case 'DespawnStmt': {
+        yield this.pauseAt(statement)
+        this.guardStep(statement)
+        this.world.despawn(yield* this.evaluate(statement.entity), statement)
+        return
+      }
+      case 'EachStmt': {
+        yield this.pauseAt(statement)
+        const type = this.env.get(statement.typeName, statement)
+        if (!isEntityType(type)) {
+          throw new RuntimeError('E0805', `Expected an entity type, but got ${describeValue(type)}`, statement.line, statement.column)
+        }
+        const items = this.world.ofType(type.name)
+        for (const entity of items) {
+          this.guardStep(statement)
+          if (!entity.alive) continue
+          const iteration = new Environment(this.env, 'each')
+          iteration.define(statement.name, entity, statement)
+          const previous = this.env
+          this.env = iteration
+          try {
+            const condition = this.expectBoolean(yield* this.evaluate(statement.where), statement.where)
+            if (condition) yield* this.executeBlock(statement.body)
+          } finally {
+            this.env = previous
+          }
+        }
+        return
+      }
+      case 'WhenStmt': {
+        yield this.pauseAt(statement)
+        this.guardStep(statement)
+        const left = this.env.get(statement.leftType, statement)
+        const right = this.env.get(statement.rightType, statement)
+        if (!isEntityType(left) || !isEntityType(right)) {
+          const bad = isEntityType(left) ? right : left
+          throw new RuntimeError('E0805', `Expected an entity type, but got ${describeValue(bad)}`, statement.line, statement.column)
+        }
+        this.rules.push({
+          left: left.name,
+          right: right.name,
+          at: statement,
+          fn: {
+            type: 'function',
+            name: 'touches',
+            params: [
+              { name: statement.left, line: statement.line, column: statement.column },
+              { name: statement.right, line: statement.line, column: statement.column },
+            ],
+            body: statement.body,
+            chunk: null,
+            closure: this.env,
+          },
+        })
         return
       }
       case 'OnStmt': {
@@ -639,6 +735,17 @@ class Interpreter {
         for (const entry of expr.entries) mapSet(map, entry.key, yield* this.evaluate(entry.value))
         return map
       }
+      case 'SpawnExpr': {
+        const type = this.env.get(expr.name, expr)
+        if (!isEntityType(type)) {
+          throw new RuntimeError('E0805', `Expected an entity type, but got ${describeValue(type)}`, expr.line, expr.column)
+        }
+        const x = yield* this.evaluate(expr.x)
+        const y = yield* this.evaluate(expr.y)
+        const pairs: { name: string; value: Value }[] = []
+        for (const field of expr.fields) pairs.push({ name: field.name, value: yield* this.evaluate(field.value) })
+        return this.world.spawn(type, x, y, pairs, expr)
+      }
       case 'RecordExpr': {
         const type = this.env.get(expr.name, expr)
         const pairs: { name: string; value: unknown }[] = []
@@ -830,6 +937,11 @@ class Interpreter {
           .map(([name, value]) => ({ name, value: formatValue(value) })),
       }))
       .filter((scope) => scope.bindings.length > 0 || scope.label === 'global' || scope.label === 'function' || !['for', 'repeat', 'block', 'match'].includes(scope.label)),
+      entities: this.world.entities.map((entity) => ({
+        name: entity.name,
+        id: entity.id,
+        fields: Object.entries(entity.fields).map(([name, value]) => ({ name, value: formatValue(value as Value) })),
+      })),
       stack: this.stack.map((frame) => ({ ...frame })),
       steps: this.steps,
       maxCallDepth: this.peakDepth,
@@ -1015,6 +1127,13 @@ export function textValue(value: Value, seen: Set<object> = new Set()): string {
     return `${value.name} { ${fields} }`
   }
   if (isRecordType(value)) return `record ${value.name}`
+  if (isEntityType(value)) return `entity ${value.name}`
+  if (value.type === 'entity') {
+    const fields = Object.entries(value.fields)
+      .map(([name, field]) => `${name}: ${textValue(field as Value, seen)}`)
+      .join(', ')
+    return `${value.name}#${value.id} { ${fields} }`
+  }
   if (value.type === 'module') return `module ${value.name}`
   if (value.type === 'array') {
     if (seen.has(value)) return '[...]'

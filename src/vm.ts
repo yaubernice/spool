@@ -25,6 +25,8 @@ import {
   applyOp,
   collectionItems,
   getField,
+  isEntity,
+  isEntityType,
   isMap,
   makeRecord,
   mapGet,
@@ -34,7 +36,6 @@ import {
   sameData,
   setField,
   type MapValue,
-  type RecordTypeValue,
 } from './data.ts'
 import { matchPattern } from './match.ts'
 import { mathBuiltins } from './math.ts'
@@ -44,6 +45,7 @@ import { optimize } from './optimize.ts'
 import { parse } from './parser.ts'
 import { TICK_DT, type KeyEvent } from './clock.ts'
 import { decodeMachine, encodeMachine, type VmImage } from './image.ts'
+import { touchingPairs, World } from './world.ts'
 import { mulberry32, type SeededRandom } from './rng.ts'
 
 /**
@@ -189,6 +191,8 @@ class VM {
   private readonly handlers: VmHandler[] = []
 
   constructor(chunk: Chunk, options: InterpretOptions) {
+  private readonly rules: { left: string; right: string; fn: FunctionValue; at: Ins }[] = []
+  private readonly world = new World()
     this.root = chunk
     this.maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS
     this.maxCallDepth = options.maxCallDepth ?? DEFAULT_MAX_CALL_DEPTH
@@ -215,6 +219,7 @@ class VM {
       this.drive()
       this.publish()
       return this.result
+      this.resolveTouches()
     } catch (error) {
       this.publish()
       throw error
@@ -227,6 +232,7 @@ class VM {
       yield* this.loop()
       this.publish()
       this.endPause = this.capture(0, 0, -1, '')
+      this.resolveTouches()
       return this.result
     } catch (error) {
       this.publish()
@@ -491,6 +497,63 @@ class VM {
         throw new RuntimeError('E0224', 'No pattern matched', ins.line, ins.column)
       case Op.USE_MODULE:
         this.stack.push(bindModule(this.modules, chunk.names[ins.arg] ?? '', ins))
+      case Op.ENTITY_TYPE: {
+        const count = this.number(this.pop(ins), ins)
+        const fields: string[] = []
+        for (let i = 0; i < count; i++) {
+          const field = this.pop(ins)
+          if (typeof field !== 'string') throw new RuntimeError('E0222', 'Expected a field name', ins.line, ins.column)
+          fields.push(field)
+        }
+        fields.reverse()
+        const type: EntityTypeValue = { type: 'entityType', name: chunk.names[ins.arg] ?? '', fields }
+        this.stack.push(type)
+        return
+      }
+      case Op.SPAWN: {
+        const pairs: { name: string; value: Value }[] = []
+        for (let i = 0; i < ins.arg; i++) {
+          const value = this.pop(ins)
+          const name = this.pop(ins)
+          if (typeof name !== 'string') throw new RuntimeError('E0803', 'Expected a field name', ins.line, ins.column)
+          pairs.push({ name, value })
+        }
+        pairs.reverse()
+        const type = this.pop(ins)
+        const y = this.pop(ins)
+        const x = this.pop(ins)
+        if (!isEntityType(type)) {
+          throw new RuntimeError('E0805', `Expected an entity type, but got ${describeValue(type)}`, ins.line, ins.column)
+        }
+        this.stack.push(this.world.spawn(type, x, y, pairs, ins))
+        return
+      }
+      case Op.DESPAWN:
+        this.world.despawn(this.pop(ins), ins)
+        return
+      case Op.ENTITIES: {
+        const type = this.pop(ins)
+        if (!isEntityType(type)) {
+          throw new RuntimeError('E0805', `Expected an entity type, but got ${describeValue(type)}`, ins.line, ins.column)
+        }
+        this.stack.push({ type: 'array', items: this.world.ofType(type.name) })
+        return
+      }
+      case Op.ALIVE: {
+        const value = this.pop(ins)
+        this.stack.push(isEntity(value) && value.alive)
+        return
+      }
+      case Op.TOUCH: {
+        const fn = this.pop(ins)
+        const right = this.pop(ins)
+        const left = this.pop(ins)
+        if (!isFn(fn) || typeof left !== 'string' || typeof right !== 'string') {
+          throw new RuntimeError('E0805', 'Expected an entity type', ins.line, ins.column)
+        }
+        this.rules.push({ left, right, fn, at: ins })
+        return
+      }
         return
       case Op.REGISTER: {
         const key = this.pop(ins)
@@ -705,6 +768,11 @@ class VM {
       scopes,
       stack: this.calls.map((frame) => ({ ...frame })),
       steps: this.steps,
+      entities: this.world.entities.map((entity) => ({
+        name: entity.name,
+        id: entity.id,
+        fields: Object.entries(entity.fields).map(([name, value]) => ({ name, value: formatValue(value as Value) })),
+      })),
       maxCallDepth: this.peakDepth,
       ip,
       chunk,
@@ -752,6 +820,21 @@ class VM {
     for (const event of events) this.dispatch(event.type, null, event.key)
   }
 
+    this.resolveTouches()
+  }
+
+  private resolveTouches(): void {
+    for (const rule of this.rules) {
+      for (const [left, right] of touchingPairs(this.world, rule.left, rule.right, rule.at)) {
+        if (!left.alive || !right.alive) continue
+        this.stack.push(rule.fn)
+        this.stack.push(left)
+        this.stack.push(right)
+        this.call({ op: Op.CALL, arg: 2, line: rule.at.line, column: rule.at.column })
+        this.drive()
+        this.stack.pop()
+      }
+    }
   private dispatch(event: VmHandler['event'], arg: Value | null, key: string | null): void {
     for (const handler of this.handlers) {
       if (handler.event !== event) continue
@@ -778,6 +861,9 @@ class VM {
       globals: this.globals,
       frames: this.frames,
       calls: this.calls,
+    })
+  }
+      world: this.world.entities,
     })
   }
 
@@ -809,8 +895,7 @@ class VM {
     this.callDepth = image.callDepth
     this.peakDepth = image.peakDepth
     this.result = decoded.result
-    this.restored = true
-  }
+    this.world.replace(decoded.entities)
 
   private pop(ins?: Ins): Value {
     const value = this.stack.pop()

@@ -40,6 +40,22 @@ export interface RecordValue {
   fields: Record<string, unknown>
 }
 
+/** `entity Ball { r }`. `x` and `y` are added by `spawn ... at`. */
+export interface EntityTypeValue {
+  type: 'entityType'
+  name: string
+  fields: string[]
+}
+
+/** One live or despawned entity. `alive` is false after `despawn`. */
+export interface EntityValue {
+  type: 'entity'
+  id: number
+  name: string
+  alive: boolean
+  fields: Record<string, unknown>
+}
+
 /** A host module bound by `use`. Fields are the module's callables. */
 export interface ModuleValue {
   type: 'module'
@@ -86,6 +102,14 @@ export function isMap(value: unknown): value is MapValue {
 
 export function isRecord(value: unknown): value is RecordValue {
   return typeof value === 'object' && value !== null && (value as { type?: string }).type === 'record'
+}
+
+export function isEntity(value: unknown): value is EntityValue {
+  return typeof value === 'object' && value !== null && (value as { type?: string }).type === 'entity'
+}
+
+export function isEntityType(value: unknown): value is EntityTypeValue {
+  return typeof value === 'object' && value !== null && (value as { type?: string }).type === 'entityType'
 }
 
 export function isModule(value: unknown): value is ModuleValue {
@@ -148,6 +172,8 @@ export function valueLabel(value: unknown): string {
   if (isRecord(value)) return `a ${value.name}`
   if (isRecordType(value)) return `record ${value.name}`
   if (isModule(value)) return `module ${value.name}`
+  if (isEntity(value)) return `entity ${value.name}`
+  if (isEntityType(value)) return `entity type ${value.name}`
   if (isArrayValue(value)) return 'an array'
   if (typeof value === 'object' && value !== null && 'type' in value) {
     const kind = value as { type?: string; name?: string }
@@ -334,6 +360,13 @@ export function getField(target: unknown, name: string): FieldResult {
     }
     return { status: 'value', value: target.fields[name] }
   }
+  if (isEntity(target)) {
+    if (!target.alive) return fail('E0806', `Entity ${target.name}#${target.id} is already gone`)
+    if (!Object.prototype.hasOwnProperty.call(target.fields, name)) {
+      return fail('E0222', `Entity ${target.name} has no field '${name}'`)
+    }
+    return { status: 'value', value: target.fields[name] }
+  }
   return fail('E0223', `Expected a record or a vec, but got ${valueLabel(target)}`)
 }
 
@@ -358,6 +391,14 @@ export function setField(target: unknown, name: string, value: unknown): StoreRe
     return { status: 'ok' }
   }
   if (isModule(target)) return fail('E0603', `Cannot assign to module '${target.name}'`)
+  if (isEntity(target)) {
+    if (!target.alive) return fail('E0806', `Entity ${target.name}#${target.id} is already gone`)
+    if (!Object.prototype.hasOwnProperty.call(target.fields, name)) {
+      return fail('E0222', `Entity ${target.name} has no field '${name}'`)
+    }
+    target.fields[name] = value
+    return { status: 'ok' }
+  }
   return fail('E0223', `Expected a record or a vec, but got ${valueLabel(target)}`)
 }
 
