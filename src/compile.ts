@@ -103,6 +103,17 @@ class Compiler {
         this.emit(Op.USE_MODULE, statement, this.name(statement.name))
         this.emit(Op.DEFINE, statement, this.name(statement.name))
         return
+      case 'OnStmt': {
+        this.emit(Op.PAUSE, statement)
+        const params: Parameter[] = statement.param
+          ? [{ name: statement.param, line: statement.line, column: statement.column }]
+          : []
+        this.closure(statement.event, params, statement.body, statement)
+        this.emit(Op.CONST, statement, this.constant(statement.key ?? ''))
+        const event = statement.event === 'start' ? 0 : statement.event === 'tick' ? 1 : statement.event === 'key' ? 2 : 3
+        this.emit(Op.REGISTER, statement, event)
+        return
+      }
       case 'FieldAssignStmt':
         this.emit(Op.PAUSE, statement)
         this.expression(statement.object)

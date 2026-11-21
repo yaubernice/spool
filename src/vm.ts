@@ -17,6 +17,7 @@ import {
   type InterpretOptions,
   type ScopeSnapshot,
   type StackFrame,
+  type Game,
   type Value,
 } from './interpreter.ts'
 import { collectionBuiltins } from './collections.ts'
@@ -29,6 +30,7 @@ import {
   mapGet,
   mapSet,
   negate,
+  quantity,
   sameData,
   setField,
   type MapValue,
@@ -40,6 +42,7 @@ import { textValue } from './interpreter.ts'
 import { vecBuiltins } from './vec.ts'
 import { optimize } from './optimize.ts'
 import { parse } from './parser.ts'
+import { TICK_DT, type KeyEvent } from './clock.ts'
 import { decodeMachine, encodeMachine, type VmImage } from './image.ts'
 import { mulberry32, type SeededRandom } from './rng.ts'
 
@@ -62,6 +65,10 @@ export interface VmSession {
   chunk: Chunk
   /** Plain data for the paused machine. Safe to `JSON.parse(JSON.stringify(...))`. */
   image: () => VmImage
+  handlerCount: () => number
+  frame: (events: KeyEvent[]) => void
+  read: (name: string) => Value
+  glance: () => DebugPause
 }
 
 export function interpretVm(source: string, options: InterpretOptions = {}): Value {
@@ -100,6 +107,27 @@ export function openVm(source: string, options: InterpretOptions = {}): VmSessio
     raw,
     chunk,
     image: () => machine.image(),
+    handlerCount: () => machine.handlerCount(),
+    frame: (events) => machine.frame(events),
+    read: (name) => machine.read(name),
+    glance: () => machine.glance(),
+  }
+}
+
+/** Run the top level on the VM, then expose the event handlers to a clock. */
+export function loadGame(source: string, options: InterpretOptions = {}): Game {
+  const session = openVm(source, options)
+  try {
+    let step = session.generator.next()
+    while (!step.done) step = session.generator.next()
+  } catch (error) {
+    if (error instanceof SourceError) throw presentError(error, source)
+    throw error
+  }
+  return {
+    hasHandlers: () => session.handlerCount() > 0,
+    get: (name) => session.read(name),
+    frame: (events) => session.frame(events),
   }
 }
 
@@ -122,6 +150,13 @@ export function resumeVm(source: string, image: VmImage, options: InterpretOptio
     if (error instanceof SourceError) throw presentError(error, source)
     throw error
   }
+}
+
+interface VmHandler {
+  event: 'start' | 'tick' | 'key' | 'key_up'
+  key: string | null
+  fn: FunctionValue
+  at: Ins
 }
 
 interface CallFrame {
@@ -150,6 +185,8 @@ class VM {
   private readonly modules: Host['modules']
   private readonly rng: SeededRandom | null
   private restored = false
+  private started = false
+  private readonly handlers: VmHandler[] = []
 
   constructor(chunk: Chunk, options: InterpretOptions) {
     this.root = chunk
@@ -455,6 +492,17 @@ class VM {
       case Op.USE_MODULE:
         this.stack.push(bindModule(this.modules, chunk.names[ins.arg] ?? '', ins))
         return
+      case Op.REGISTER: {
+        const key = this.pop(ins)
+        const fn = this.pop(ins)
+        if (typeof key !== 'string' || !isFn(fn)) {
+          throw new RuntimeError('E0204', 'That value is not a function', ins.line, ins.column)
+        }
+        const event = (['start', 'tick', 'key', 'key_up'] as const)[ins.arg]
+        if (!event) throw new RuntimeError('E0204', 'That value is not a function', ins.line, ins.column)
+        this.handlers.push({ event, key: key === '' ? null : key, fn, at: ins })
+        return
+      }
       case Op.PAUSE:
         return
       default:
@@ -680,6 +728,41 @@ class VM {
     if (!this.stats) return
     this.stats.steps = this.steps
     this.stats.maxCallDepth = this.peakDepth
+  }
+
+  handlerCount(): number {
+    return this.handlers.length
+  }
+
+  read(name: string): Value {
+    return this.globals.get(name, { line: 1, column: 1 })
+  }
+
+  glance(): DebugPause {
+    return this.capture(0, 0, -1, '')
+  }
+
+  frame(events: KeyEvent[]): void {
+    this.steps = 0
+    if (!this.started) {
+      this.started = true
+      this.dispatch('start', null, null)
+    }
+    this.dispatch('tick', quantity(TICK_DT.value, TICK_DT.unit), null)
+    for (const event of events) this.dispatch(event.type, null, event.key)
+  }
+
+  private dispatch(event: VmHandler['event'], arg: Value | null, key: string | null): void {
+    for (const handler of this.handlers) {
+      if (handler.event !== event) continue
+      if (handler.key !== null && handler.key !== key) continue
+      const count = arg === null ? 0 : 1
+      this.stack.push(handler.fn)
+      if (arg !== null) this.stack.push(arg)
+      this.call({ op: Op.CALL, arg: count, line: handler.at.line, column: handler.at.column })
+      this.drive()
+      this.stack.pop()
+    }
   }
 
   image(): VmImage {

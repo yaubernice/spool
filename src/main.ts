@@ -1,5 +1,6 @@
 import './style.css'
 import { disassemble } from './bytecode.ts'
+import type { KeyEvent } from './clock.ts'
 import { compile } from './compile.ts'
 import { SourceError } from './errors.ts'
 import type { DebugPause, ExecutionStats, ScopeSnapshot, StackFrame, Value } from './interpreter.ts'
@@ -68,7 +69,7 @@ app.innerHTML = `
       <div class="splitter" id="split-x" role="separator" aria-orientation="vertical"></div>
       <section class="side">
         <section class="stage">
-          <canvas id="canvas" aria-label="Turtle drawing"></canvas>
+          <canvas id="canvas" tabindex="0" aria-label="Turtle drawing"></canvas>
           <div class="timeline">
             <button id="back" type="button" title="Step back (Alt+Left)">Back</button>
             <input id="timeline" type="range" min="0" max="0" value="0" aria-label="Trace timeline" />
@@ -193,6 +194,9 @@ let traceIndex = 0
 let traceTruncated = false
 let benchWorker: Worker | null = null
 let benchRows: BenchRow[] = []
+let clock = 0
+let keyQueue: KeyEvent[] = []
+const inputLog: KeyEvent[][] = []
 
 interface TraceFrame {
   line: number
@@ -331,6 +335,7 @@ function run(): void {
     playback = playDrawing(canvas, strokes, unitsPerSecond, turtle, () => {
       if (runState.textContent === 'Drawing…') runState.textContent = 'Done'
     })
+    if (opened.handlerCount() > 0) startClock(opened, turtle)
   } catch (error) {
     strokes = turtle.strokes
     fail(error)
@@ -373,8 +378,73 @@ async function continueRun(): Promise<void> {
   if (session && stopContinue) runState.textContent = 'Paused'
 }
 
+function startClock(opened: ReturnType<typeof openVm>, turtle: Turtle): void {
+  let last = performance.now()
+  let acc = 0
+  const stepMs = 1000 / 60
+  const loop = (now: number) => {
+    acc += Math.min(now - last, 100)
+    last = now
+    let guard = 0
+    try {
+      while (acc >= stepMs && guard < 5) {
+        acc -= stepMs
+        const events = keyQueue.splice(0, keyQueue.length)
+        inputLog.push(events)
+        opened.frame(events)
+        guard++
+      }
+    } catch (error) {
+      if (clock) cancelAnimationFrame(clock)
+      clock = 0
+      fail(error)
+      runState.textContent = 'The program stopped.'
+      return
+    }
+    playback?.stop()
+    playback = playDrawing(canvas, turtle.strokes, () => Number.POSITIVE_INFINITY, turtle)
+    const view = opened.glance()
+    renderScopes(panes.variables, view.scopes)
+    renderStack(panes.stack, view.stack)
+    prints = turtle.prints
+    showConsole(null)
+    runState.textContent = `Playing · frame ${inputLog.length}`
+    clock = requestAnimationFrame(loop)
+  }
+  inputLog.length = 0
+  clock = requestAnimationFrame(loop)
+}
+
+function keyName(event: KeyboardEvent): string {
+  if (event.key === ' ') return 'space'
+  if (event.key === 'ArrowLeft') return 'left'
+  if (event.key === 'ArrowRight') return 'right'
+  if (event.key === 'ArrowUp') return 'up'
+  if (event.key === 'ArrowDown') return 'down'
+  return event.key.toLowerCase()
+}
+
+window.addEventListener('keydown', (event) => {
+  if (!clock || event.repeat) return
+  const target = event.target
+  if (target instanceof HTMLElement && target.closest('.cm-editor, input, textarea')) return
+  event.preventDefault()
+  keyQueue.push({ type: 'key', key: keyName(event) })
+})
+
+window.addEventListener('keyup', (event) => {
+  if (!clock) return
+  const target = event.target
+  if (target instanceof HTMLElement && target.closest('.cm-editor, input, textarea')) return
+  event.preventDefault()
+  keyQueue.push({ type: 'key_up', key: keyName(event) })
+})
+
 function halt(label: string): void {
   stopContinue = true
+  if (clock) cancelAnimationFrame(clock)
+  clock = 0
+  keyQueue = []
   session = null
   editor.highlightLine(null)
   if (label !== 'Running' && label !== 'Editing') runState.textContent = label

@@ -20,6 +20,7 @@ import {
   isVec,
   makeRecord,
   mapGet,
+  quantity,
   mapSet,
   negate,
   sameData,
@@ -38,6 +39,7 @@ import { isArray } from './collections.ts'
 import { collectionBuiltins } from './collections.ts'
 import { presentError, RuntimeError, SourceError, suggestName } from './errors.ts'
 import { mathBuiltins } from './math.ts'
+import { TICK_DT, type KeyEvent } from './clock.ts'
 import type { Host } from './host.ts'
 import { parse } from './parser.ts'
 import { mulberry32 } from './rng.ts'
@@ -181,6 +183,39 @@ export function interpret(source: string, options: InterpretOptions = {}): Value
  * or in a loop that yields to the browser for Continue.
  * The return value matches `interpret`.
  */
+export interface Game {
+  hasHandlers(): boolean
+  get(name: string): Value
+  /** One fixed step: `on start` the first time, then `on tick`, then the keys in this frame. */
+  frame(events: KeyEvent[]): void
+}
+
+/** Run the top level, then expose the event handlers to a clock. */
+export function loadGame(source: string, options: InterpretOptions = {}): Game {
+  let program: Program
+  try {
+    program = parse(source)
+  } catch (error) {
+    if (error instanceof SourceError) throw presentError(error, source)
+    throw error
+  }
+  const machine = new Interpreter(options)
+  try {
+    const running = machine.run(program)
+    let step = running.next()
+    while (!step.done) step = running.next()
+  } catch (error) {
+    machine.publish()
+    if (error instanceof SourceError) throw presentError(error, source)
+    throw error
+  }
+  return {
+    hasHandlers: () => machine.handlerCount() > 0,
+    get: (name) => machine.read(name),
+    frame: (events) => machine.frame(events),
+  }
+}
+
 export function* debug(source: string, options: InterpretOptions = {}): Generator<DebugPause, Value, void> {
   let program: Program
   try {
@@ -259,6 +294,13 @@ export class Environment {
   }
 }
 
+interface Handler {
+  event: 'start' | 'tick' | 'key' | 'key_up'
+  key: string | null
+  at: SourceLocation
+  fn: FunctionValue
+}
+
 /** Thrown only to unwind `return`. The interpreter catches it at the function call. */
 class ReturnSignal {
   constructor(readonly value: Value) {}
@@ -276,6 +318,8 @@ class Interpreter {
   private result: Value = null
   private readonly stack: StackFrame[] = []
   private readonly modules: Host['modules']
+  private readonly handlers: Handler[] = []
+  private started = false
 
   constructor(options: InterpretOptions) {
     this.maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS
@@ -289,6 +333,40 @@ class Interpreter {
       this.globals.define(name, { type: 'builtin', name, call }, { line: 1, column: 1 })
     }
     this.env = this.globals
+  }
+
+  handlerCount(): number {
+    return this.handlers.length
+  }
+
+  read(name: string): Value {
+    return this.globals.get(name, { line: 1, column: 1 })
+  }
+
+  frame(events: KeyEvent[]): void {
+    this.steps = 0
+    if (!this.started) {
+      this.started = true
+      this.dispatch('start', null, null)
+    }
+    this.dispatch('tick', quantity(TICK_DT.value, TICK_DT.unit), null)
+    for (const event of events) this.dispatch(event.type, null, event.key)
+  }
+
+  private dispatch(event: Handler['event'], arg: Value | null, key: string | null): void {
+    for (const handler of this.handlers) {
+      if (handler.event !== event) continue
+      if (handler.key !== null && handler.key !== key) continue
+      const label: Expr = {
+        type: 'VariableExpr',
+        name: handler.fn.name,
+        line: handler.at.line,
+        column: handler.at.column,
+      }
+      const running = this.invoke(handler.fn, arg === null ? [] : [arg], handler.at, label)
+      let step = running.next()
+      while (!step.done) step = running.next()
+    }
   }
 
   publish(): void {
@@ -361,6 +439,27 @@ class Interpreter {
         yield this.pauseAt(statement)
         this.guardStep(statement)
         this.env.define(statement.name, bindModule(this.modules, statement.name, statement), statement)
+        return
+      }
+      case 'OnStmt': {
+        yield this.pauseAt(statement)
+        this.guardStep(statement)
+        const params = statement.param
+          ? [{ name: statement.param, line: statement.line, column: statement.column }]
+          : []
+        this.handlers.push({
+          event: statement.event,
+          key: statement.key,
+          at: statement,
+          fn: {
+            type: 'function',
+            name: statement.event,
+            params,
+            body: statement.body,
+            chunk: null,
+            closure: this.env,
+          },
+        })
         return
       }
       case 'FieldAssignStmt': {

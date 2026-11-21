@@ -26,6 +26,7 @@ import type {
   Program,
   RecordExpr,
   RecordStmt,
+  OnStmt,
   UseStmt,
   RepeatStmt,
   ReturnStmt,
@@ -171,6 +172,7 @@ class Parser {
     if (this.check('FOR')) return this.forStatement()
     if (this.check('RECORD')) return this.recordStatement()
     if (this.check('USE')) return this.useStatement()
+    if (this.check('ON')) return this.onStatement()
     if (this.check('FN') && this.peekNext().type === 'IDENTIFIER') return this.fnStatement()
     if (this.check('RETURN')) return this.returnStatement()
     if (this.check('IDENTIFIER') && this.peekNext().type === 'ASSIGN') return this.assignStatement()
@@ -234,6 +236,36 @@ class Parser {
     const end = this.beforeBlock(() => this.climb(0))
     const body = this.block()
     return { type: 'ForStmt', name: name.lexeme, start, end, body, ...this.span(keyword) }
+  }
+
+  /** `on tick(dt) { }`. The body is stored and run by the game clock. */
+  private onStatement(): OnStmt {
+    const keyword = this.advance()
+    const kind = this.consume('IDENTIFIER', "'start', 'tick', 'key', or 'key_up'")
+    if (kind.lexeme === 'start') {
+      const body = this.block()
+      return { type: 'OnStmt', event: 'start', param: null, key: null, body, ...this.span(keyword) }
+    }
+    if (kind.lexeme === 'tick') {
+      this.consume('LPAREN', "'('")
+      const param = this.consume('IDENTIFIER', 'a parameter name')
+      this.consume('RPAREN', "')'")
+      const body = this.block()
+      return { type: 'OnStmt', event: 'tick', param: param.lexeme, key: null, body, ...this.span(keyword) }
+    }
+    if (kind.lexeme === 'key' || kind.lexeme === 'key_up') {
+      const key = this.consume('STRING', 'a key name')
+      const body = this.block()
+      return {
+        type: 'OnStmt',
+        event: kind.lexeme,
+        param: null,
+        key: String(key.literal),
+        body,
+        ...this.span(keyword),
+      }
+    }
+    throw new ParseError('E0101', "Expected 'start', 'tick', 'key', or 'key_up'", kind.line, kind.column)
   }
 
   /** `use turtle`. The name is whatever the host registered. */

@@ -75,6 +75,18 @@ turtle.turn(90)
 
 The playground also keeps the turtle commands as bare names, so an older program can still say `forward 40` without `use turtle`.
 
+### Events
+
+```
+let n = 0
+on start { n = 1 }
+on tick(dt) { n = n + 1 }
+on key "space" { n = n + 10 }
+on key_up "space" { n = n + 100 }
+```
+
+`on start` runs once, when the clock begins. `on tick(dt)` runs 60 times a second. `dt` is `1/60 s`. `on key` and `on key_up` run for the matching key in that frame. The same program, the same seed, and the same list of keys produce the same run. The page plays this on a fixed step and draws between steps.
+
 ### Turtle module
 
 | Command   | Meaning                          |
@@ -172,7 +184,7 @@ Runtime guards: a step limit and a call-depth limit, so an infinite loop or a ru
 
 ## Where this is going
 
-`use` is in the language. The `draw` and `input` commands are not: a host can register those names, but this phase does not give them a body. Still ahead: a fixed-timestep game loop, entities and collision rules, tasks that `wait`, audio, and rewind. The playground can already show bytecode and scrub a recorded trace of a drawing. Those stay. A measured benchmark table and a demo GIF belong to a later phase.
+`use` and the 60Hz clock are in the language. The `draw` and `input` commands are not: a host can register those names, but this phase does not give them a body. Still ahead: entities and collision rules, tasks that `wait`, audio, and rewind. The playground can already show bytecode and scrub a recorded trace of a drawing. Those stay. A measured benchmark table and a demo GIF belong to a later phase.
 
 ## Playground
 

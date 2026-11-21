@@ -293,6 +293,17 @@ export interface ForInStmt extends SourceLocation {
   body: BlockStmt
 }
 
+/** `on start`, `on tick(dt)`, `on key "space"`, or `on key_up "space"`. */
+export interface OnStmt extends SourceLocation {
+  type: 'OnStmt'
+  event: 'start' | 'tick' | 'key' | 'key_up'
+  /** The `dt` name for `on tick`. Null for the other events. */
+  param: string | null
+  /** The key name for `on key` and `on key_up`. Null otherwise. */
+  key: string | null
+  body: BlockStmt
+}
+
 /** `use turtle`. Binds a module the host provided. */
 export interface UseStmt extends SourceLocation {
   type: 'UseStmt'
@@ -329,6 +340,7 @@ export type Stmt =
   | ForInStmt
   | RecordStmt
   | UseStmt
+  | OnStmt
   | ReturnStmt
   | FnStmt
 
