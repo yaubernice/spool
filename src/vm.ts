@@ -40,7 +40,8 @@ import { textValue } from './interpreter.ts'
 import { vecBuiltins } from './vec.ts'
 import { optimize } from './optimize.ts'
 import { parse } from './parser.ts'
-import { mulberry32 } from './rng.ts'
+import { decodeMachine, encodeMachine, type VmImage } from './image.ts'
+import { mulberry32, type SeededRandom } from './rng.ts'
 
 /**
  * Stack VM.
@@ -59,6 +60,8 @@ export interface VmSession {
   raw: Chunk
   /** Bytecode that actually runs. */
   chunk: Chunk
+  /** Plain data for the paused machine. Safe to `JSON.parse(JSON.stringify(...))`. */
+  image: () => VmImage
 }
 
 export function interpretVm(source: string, options: InterpretOptions = {}): Value {
@@ -96,6 +99,28 @@ export function openVm(source: string, options: InterpretOptions = {}): VmSessio
     finalPause: () => machine.finalPause(),
     raw,
     chunk,
+    image: () => machine.image(),
+  }
+}
+
+/** Continue a saved machine until the program ends. */
+export function resumeVm(source: string, image: VmImage, options: InterpretOptions = {}): Value {
+  let program
+  try {
+    program = parse(source)
+  } catch (error) {
+    if (error instanceof SourceError) throw presentError(error, source)
+    throw error
+  }
+  const raw = compile(program)
+  const chunk = options.optimize ? optimize(raw, options.optimize) : raw
+  const machine = new VM(chunk, options)
+  machine.restore(image)
+  try {
+    return machine.finish()
+  } catch (error) {
+    if (error instanceof SourceError) throw presentError(error, source)
+    throw error
   }
 }
 
@@ -123,6 +148,8 @@ class VM {
   private result: Value = null
   private endPause: DebugPause | null = null
   private readonly modules: Host['modules']
+  private readonly rng: SeededRandom | null
+  private restored = false
 
   constructor(chunk: Chunk, options: InterpretOptions) {
     this.root = chunk
@@ -131,7 +158,8 @@ class VM {
     this.stats = options.stats
     this.globals = new Environment(null, 'global')
     this.modules = options.modules ?? {}
-    const random = options.seed === undefined ? Math.random : mulberry32(options.seed)
+    this.rng = options.seed === undefined ? null : mulberry32(options.seed)
+    const random = this.rng ?? Math.random
     const builtins = { ...mathBuiltins(random), ...collectionBuiltins(), ...vecBuiltins(), ...options.builtins }
     for (const [name, call] of Object.entries(builtins)) {
       this.globals.define(name, { type: 'builtin', name, call }, { line: 1, column: 1 })
@@ -146,7 +174,7 @@ class VM {
   /** Run to the end without pausing. Benchmarks and `interpretVm` use this. */
   finish(): Value {
     try {
-      this.frames.push({ chunk: this.root, ip: 0, parentEnv: this.env, call: false })
+      if (!this.restored) this.frames.push({ chunk: this.root, ip: 0, parentEnv: this.env, call: false })
       this.drive()
       this.publish()
       return this.result
@@ -652,6 +680,53 @@ class VM {
     if (!this.stats) return
     this.stats.steps = this.steps
     this.stats.maxCallDepth = this.peakDepth
+  }
+
+  image(): VmImage {
+    return encodeMachine({
+      root: this.root,
+      rng: this.rng ? this.rng.state : null,
+      steps: this.steps,
+      callDepth: this.callDepth,
+      peakDepth: this.peakDepth,
+      result: this.result,
+      stack: this.stack,
+      env: this.env,
+      globals: this.globals,
+      frames: this.frames,
+      calls: this.calls,
+    })
+  }
+
+  restore(image: VmImage): void {
+    if (this.rng && image.rng !== null) this.rng.state = image.rng >>> 0
+    const builtins = new Map<string, Value>()
+    for (const [, value] of this.globals.entries()) {
+      if (isBuiltin(value)) builtins.set(value.name, value)
+    }
+    const decoded = decodeMachine(image, this.root, this.globals, this.modules, (name) => {
+      const found = builtins.get(name)
+      if (found) return found
+      const dot = name.indexOf('.')
+      if (dot > 0) {
+        const module = bindModule(this.modules, name.slice(0, dot), { line: 1, column: 1 })
+        const field = module.fields[name.slice(dot + 1)]
+        if (isBuiltin(field as Value)) return field as Value
+      }
+      throw new Error(`Cannot restore built-in ${name}`)
+    })
+    this.stack.length = 0
+    this.stack.push(...decoded.stack)
+    this.env = decoded.env
+    this.frames.length = 0
+    this.frames.push(...decoded.frames)
+    this.calls.length = 0
+    this.calls.push(...image.calls)
+    this.steps = image.steps
+    this.callDepth = image.callDepth
+    this.peakDepth = image.peakDepth
+    this.result = decoded.result
+    this.restored = true
   }
 
   private pop(ins?: Ins): Value {
