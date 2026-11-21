@@ -153,7 +153,10 @@ export class Turtle {
 export function trace(source: string, run: ProgramRunner = interpret): TurtleResult {
   const turtle = new Turtle()
   const stats = { steps: 0, maxCallDepth: 0 }
-  run(source, { builtins: turtle.builtins(), stats })
+  const commands = turtle.builtins()
+  // The module is the real home of these commands. The bare names stay
+  // available so older programs can still say `forward 10`.
+  run(source, { builtins: commands, modules: { turtle: commands }, stats })
   return {
     strokes: turtle.strokes,
     prints: turtle.prints,

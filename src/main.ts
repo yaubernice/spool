@@ -297,7 +297,14 @@ function run(): void {
   const stats: ExecutionStats = { steps: 0, maxCallDepth: 0 }
   const started = performance.now()
   try {
-    const opened = openVm(code, { builtins: turtle.builtins(), stats, seed, optimize: passes() })
+    const commands = turtle.builtins()
+    const opened = openVm(code, {
+      builtins: commands,
+      modules: { turtle: commands },
+      stats,
+      seed,
+      optimize: passes(),
+    })
     let step = opened.generator.next()
     while (!step.done) {
       remember(frameFrom(step.value, turtle))
@@ -393,7 +400,14 @@ function arm(): boolean {
   const stats: ExecutionStats = { steps: 0, maxCallDepth: 0 }
   frames = []
   traceTruncated = false
-  const opened = openVm(editor.getCode(), { builtins: turtle.builtins(), stats, seed, optimize: passes() })
+  const commands = turtle.builtins()
+  const opened = openVm(editor.getCode(), {
+    builtins: commands,
+    modules: { turtle: commands },
+    stats,
+    seed,
+    optimize: passes(),
+  })
   session = { iterator: opened.generator, turtle, stats, finalPause: opened.finalPause }
   prints = []
   editor.setError(null)

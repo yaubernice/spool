@@ -29,6 +29,7 @@ export type TokenType =
   | 'FALSE'
   | 'RECORD'
   | 'MATCH'
+  | 'USE'
   | 'PLUS'
   | 'MINUS'
   | 'STAR'
@@ -85,6 +86,7 @@ const KEYWORDS: Readonly<Record<string, TokenType>> = {
   false: 'FALSE',
   record: 'RECORD',
   match: 'MATCH',
+  use: 'USE',
 }
 
 /** Turn source text into tokens. Throws LexError on bad input. */

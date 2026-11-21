@@ -315,6 +315,8 @@ function statementNode(statement: Stmt): TreeNode {
       ])
     case 'RecordStmt':
       return make('RecordStmt', statement.name, statement, [])
+    case 'UseStmt':
+      return make('UseStmt', statement.name, statement, [])
     case 'FieldAssignStmt':
       return make('FieldAssignStmt', statement.name, statement, [exprNode(statement.object), exprNode(statement.value)])
     case 'IndexAssignStmt':
@@ -433,6 +435,7 @@ function countStmt(statement: Stmt): number {
     case 'ForInStmt':
       return 1 + countExpr(statement.collection) + countBlock(statement.body)
     case 'RecordStmt':
+    case 'UseStmt':
       return 1
     case 'FieldAssignStmt':
       return 1 + countExpr(statement.object) + countExpr(statement.value)

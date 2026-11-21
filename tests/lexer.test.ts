@@ -92,7 +92,7 @@ describe('operators', () => {
 
 describe('keywords', () => {
   it('recognizes reserved words', () => {
-    expect(types('let if else while repeat for in fn return and or not true false record match')).toEqual([
+    expect(types('let if else while repeat for in fn return and or not true false record match use')).toEqual([
       'LET',
       'IF',
       'ELSE',
@@ -109,6 +109,7 @@ describe('keywords', () => {
       'FALSE',
       'RECORD',
       'MATCH',
+      'USE',
       'EOF',
     ])
   })

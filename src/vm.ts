@@ -1,3 +1,4 @@
+import type { Host } from './host.ts'
 import type { Chunk, Ins } from './bytecode.ts'
 import { Op } from './bytecode.ts'
 import { compile } from './compile.ts'
@@ -12,6 +13,7 @@ import {
   type DebugPause,
   type ExecutionStats,
   type FunctionValue,
+  bindModule,
   type InterpretOptions,
   type ScopeSnapshot,
   type StackFrame,
@@ -120,6 +122,7 @@ class VM {
   private peakDepth = 0
   private result: Value = null
   private endPause: DebugPause | null = null
+  private readonly modules: Host['modules']
 
   constructor(chunk: Chunk, options: InterpretOptions) {
     this.root = chunk
@@ -127,6 +130,7 @@ class VM {
     this.maxCallDepth = options.maxCallDepth ?? DEFAULT_MAX_CALL_DEPTH
     this.stats = options.stats
     this.globals = new Environment(null, 'global')
+    this.modules = options.modules ?? {}
     const random = options.seed === undefined ? Math.random : mulberry32(options.seed)
     const builtins = { ...mathBuiltins(random), ...collectionBuiltins(), ...vecBuiltins(), ...options.builtins }
     for (const [name, call] of Object.entries(builtins)) {
@@ -420,6 +424,9 @@ class VM {
       }
       case Op.MATCH_FAIL:
         throw new RuntimeError('E0224', 'No pattern matched', ins.line, ins.column)
+      case Op.USE_MODULE:
+        this.stack.push(bindModule(this.modules, chunk.names[ins.arg] ?? '', ins))
+        return
       case Op.PAUSE:
         return
       default:

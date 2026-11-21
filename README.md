@@ -63,7 +63,19 @@ Keep it small on purpose.
 
 `random` is deterministic when a run is given a seed. The playground seed is the number in the toolbar, and it is part of the share link. The same program and the same seed do the same thing on the tree-walker and on the VM. With no seed, `random` uses `Math.random`.
 
-### Turtle built-ins
+### Modules
+
+```
+use turtle
+turtle.forward(40)
+turtle.turn(90)
+```
+
+`use name` binds a module the host registered under that name. A call is `turtle.forward(40)`. The interpreter never hears about a canvas or the page. It only sees the functions the host handed it. `use` of a name the host did not register is an error. `draw` and `input` are the same kind of name; their commands come later.
+
+The playground also keeps the turtle commands as bare names, so an older program can still say `forward 40` without `use turtle`.
+
+### Turtle module
 
 | Command   | Meaning                          |
 |-----------|----------------------------------|
@@ -77,7 +89,7 @@ Keep it small on purpose.
 | `goto`    | Jump to a position               |
 | `print`   | Print a value (console / output) |
 
-A turtle command can be written without parentheses when it is a statement: `forward 40`, `goto 10 20`. A parenthesis uses the normal call. A name you defined yourself always needs parentheses.
+A bare turtle command can be written without parentheses when it is a statement: `forward 40`, `goto 10 20`. A parenthesis uses the normal call. A name you defined yourself, and a module field, always needs parentheses.
 
 ### Example
 
@@ -160,7 +172,7 @@ Runtime guards: a step limit and a call-depth limit, so an infinite loop or a ru
 
 ## Where this is going
 
-Not in the language yet: modules (`use draw`), a fixed-timestep game loop, entities and collision rules, tasks that `wait`, audio, and rewind. The playground can already show bytecode and scrub a recorded trace of a drawing. Those stay. A measured benchmark table and a demo GIF belong to a later phase.
+`use` is in the language. The `draw` and `input` commands are not: a host can register those names, but this phase does not give them a body. Still ahead: a fixed-timestep game loop, entities and collision rules, tasks that `wait`, audio, and rewind. The playground can already show bytecode and scrub a recorded trace of a drawing. Those stay. A measured benchmark table and a demo GIF belong to a later phase.
 
 ## Playground
 

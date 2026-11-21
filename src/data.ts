@@ -40,6 +40,13 @@ export interface RecordValue {
   fields: Record<string, unknown>
 }
 
+/** A host module bound by `use`. Fields are the module's callables. */
+export interface ModuleValue {
+  type: 'module'
+  name: string
+  fields: Record<string, unknown>
+}
+
 export type Fail = { status: 'fail'; code: string; detail: string }
 
 export type ArithResult =
@@ -79,6 +86,10 @@ export function isMap(value: unknown): value is MapValue {
 
 export function isRecord(value: unknown): value is RecordValue {
   return typeof value === 'object' && value !== null && (value as { type?: string }).type === 'record'
+}
+
+export function isModule(value: unknown): value is ModuleValue {
+  return typeof value === 'object' && value !== null && (value as { type?: string }).type === 'module'
 }
 
 export function isRecordType(value: unknown): value is RecordTypeValue {
@@ -136,6 +147,7 @@ export function valueLabel(value: unknown): string {
   if (isMap(value)) return 'a map'
   if (isRecord(value)) return `a ${value.name}`
   if (isRecordType(value)) return `record ${value.name}`
+  if (isModule(value)) return `module ${value.name}`
   if (isArrayValue(value)) return 'an array'
   if (typeof value === 'object' && value !== null && 'type' in value) {
     const kind = value as { type?: string; name?: string }
@@ -316,6 +328,12 @@ export function getField(target: unknown, name: string): FieldResult {
     }
     return { status: 'value', value: target.fields[name] }
   }
+  if (isModule(target)) {
+    if (!Object.prototype.hasOwnProperty.call(target.fields, name)) {
+      return fail('E0602', `Module '${target.name}' has no '${name}'`)
+    }
+    return { status: 'value', value: target.fields[name] }
+  }
   return fail('E0223', `Expected a record or a vec, but got ${valueLabel(target)}`)
 }
 
@@ -339,6 +357,7 @@ export function setField(target: unknown, name: string, value: unknown): StoreRe
     target.fields[name] = value
     return { status: 'ok' }
   }
+  if (isModule(target)) return fail('E0603', `Cannot assign to module '${target.name}'`)
   return fail('E0223', `Expected a record or a vec, but got ${valueLabel(target)}`)
 }
 

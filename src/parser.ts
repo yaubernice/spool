@@ -26,6 +26,7 @@ import type {
   Program,
   RecordExpr,
   RecordStmt,
+  UseStmt,
   RepeatStmt,
   ReturnStmt,
   SourceLocation,
@@ -169,6 +170,7 @@ class Parser {
     if (this.check('REPEAT')) return this.repeatStatement()
     if (this.check('FOR')) return this.forStatement()
     if (this.check('RECORD')) return this.recordStatement()
+    if (this.check('USE')) return this.useStatement()
     if (this.check('FN') && this.peekNext().type === 'IDENTIFIER') return this.fnStatement()
     if (this.check('RETURN')) return this.returnStatement()
     if (this.check('IDENTIFIER') && this.peekNext().type === 'ASSIGN') return this.assignStatement()
@@ -232,6 +234,13 @@ class Parser {
     const end = this.beforeBlock(() => this.climb(0))
     const body = this.block()
     return { type: 'ForStmt', name: name.lexeme, start, end, body, ...this.span(keyword) }
+  }
+
+  /** `use turtle`. The name is whatever the host registered. */
+  private useStatement(): UseStmt {
+    const keyword = this.advance()
+    const name = this.consume('IDENTIFIER', 'a module name')
+    return { type: 'UseStmt', name: name.lexeme, ...this.span(keyword) }
   }
 
   /** `record Paddle { x, y }`. */

@@ -27,6 +27,7 @@ import {
   valueLabel,
   type MapValue,
   type Quantity,
+  type ModuleValue,
   type RecordTypeValue,
   type RecordValue,
   type VecValue,
@@ -37,6 +38,7 @@ import { isArray } from './collections.ts'
 import { collectionBuiltins } from './collections.ts'
 import { presentError, RuntimeError, SourceError, suggestName } from './errors.ts'
 import { mathBuiltins } from './math.ts'
+import type { Host } from './host.ts'
 import { parse } from './parser.ts'
 import { mulberry32 } from './rng.ts'
 
@@ -85,6 +87,7 @@ export type Value =
   | MapValue
   | RecordValue
   | RecordTypeValue
+  | ModuleValue
 
 export interface ExecutionStats {
   steps: number
@@ -104,6 +107,12 @@ export interface InterpretOptions {
   seed?: number
   /** Used by the bytecode VM. The tree-walker ignores it. */
   optimize?: { fold: boolean; dce: boolean }
+  /**
+   * Modules for `use`. The name after `use` is a key in this map.
+   * A missing name is an error. The interpreter does not know what a
+   * module does; the host registers the functions.
+   */
+  modules?: Host['modules']
 }
 
 /** One environment on the scope chain, with builtins left out. */
@@ -266,12 +275,14 @@ class Interpreter {
   private peakDepth = 0
   private result: Value = null
   private readonly stack: StackFrame[] = []
+  private readonly modules: Host['modules']
 
   constructor(options: InterpretOptions) {
     this.maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS
     this.maxCallDepth = options.maxCallDepth ?? DEFAULT_MAX_CALL_DEPTH
     this.stats = options.stats
     this.globals = new Environment(null, 'global')
+    this.modules = options.modules ?? {}
     const random = options.seed === undefined ? Math.random : mulberry32(options.seed)
     const builtins = { ...mathBuiltins(random), ...collectionBuiltins(), ...vecBuiltins(), ...options.builtins }
     for (const [name, call] of Object.entries(builtins)) {
@@ -344,6 +355,12 @@ class Interpreter {
         this.guardStep(statement)
         const type: RecordTypeValue = { type: 'recordType', name: statement.name, fields: [...statement.fields] }
         this.env.define(statement.name, type, statement)
+        return
+      }
+      case 'UseStmt': {
+        yield this.pauseAt(statement)
+        this.guardStep(statement)
+        this.env.define(statement.name, bindModule(this.modules, statement.name, statement), statement)
         return
       }
       case 'FieldAssignStmt': {
@@ -821,6 +838,26 @@ class Interpreter {
   }
 }
 
+/**
+ * Turn a host module table entry into a value the program can call.
+ * `use draw` and `use turtle` take the same path. The name is just a key.
+ */
+export function bindModule(
+  modules: Host['modules'] | undefined,
+  name: string,
+  at: SourceLocation,
+): ModuleValue {
+  const table = modules?.[name]
+  if (!table) {
+    throw new RuntimeError('E0601', `Unknown module '${name}'`, at.line, at.column)
+  }
+  const fields: Record<string, Value> = {}
+  for (const [field, call] of Object.entries(table)) {
+    fields[field] = { type: 'builtin', name: `${name}.${field}`, call }
+  }
+  return { type: 'module', name, fields }
+}
+
 function undefinedName(name: string, at: SourceLocation, names: string[]): RuntimeError {
   const hint = suggestName(name, names)
   const detail = hint
@@ -879,6 +916,7 @@ export function textValue(value: Value, seen: Set<object> = new Set()): string {
     return `${value.name} { ${fields} }`
   }
   if (isRecordType(value)) return `record ${value.name}`
+  if (value.type === 'module') return `module ${value.name}`
   if (value.type === 'array') {
     if (seen.has(value)) return '[...]'
     seen.add(value)

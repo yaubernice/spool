@@ -58,6 +58,7 @@ export const enum Op {
   MAKE_RECORD,
   TRY_PATTERN,
   MATCH_FAIL,
+  USE_MODULE,
 }
 
 export interface Ins {
@@ -132,6 +133,7 @@ const OP_NAME: Record<number, string> = {
   [Op.MAKE_RECORD]: 'MAKE_RECORD',
   [Op.TRY_PATTERN]: 'TRY_PATTERN',
   [Op.MATCH_FAIL]: 'MATCH_FAIL',
+  [Op.USE_MODULE]: 'USE_MODULE',
 }
 
 export function isJump(op: Op): boolean {
@@ -185,6 +187,7 @@ function formatIns(ins: Ins, chunk: Chunk, ip: number): string {
     case Op.GET_FIELD:
     case Op.SET_FIELD:
     case Op.RECORD_TYPE:
+    case Op.USE_MODULE:
       detail = chunk.names[ins.arg] ?? ''
       break
     case Op.PUSH_SCOPE:

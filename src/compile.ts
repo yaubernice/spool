@@ -98,6 +98,11 @@ class Compiler {
         this.emit(Op.RECORD_TYPE, statement, this.name(statement.name))
         this.emit(Op.DEFINE, statement, this.name(statement.name))
         return
+      case 'UseStmt':
+        this.emit(Op.PAUSE, statement)
+        this.emit(Op.USE_MODULE, statement, this.name(statement.name))
+        this.emit(Op.DEFINE, statement, this.name(statement.name))
+        return
       case 'FieldAssignStmt':
         this.emit(Op.PAUSE, statement)
         this.expression(statement.object)

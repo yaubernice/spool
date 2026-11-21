@@ -293,6 +293,12 @@ export interface ForInStmt extends SourceLocation {
   body: BlockStmt
 }
 
+/** `use turtle`. Binds a module the host provided. */
+export interface UseStmt extends SourceLocation {
+  type: 'UseStmt'
+  name: string
+}
+
 /** `record Paddle { x, y }`. Defines a record type under that name. */
 export interface RecordStmt extends SourceLocation {
   type: 'RecordStmt'
@@ -322,6 +328,7 @@ export type Stmt =
   | ForStmt
   | ForInStmt
   | RecordStmt
+  | UseStmt
   | ReturnStmt
   | FnStmt
 
