@@ -9,10 +9,16 @@ export interface KeyEvent {
   key: string
 }
 
+/** One recorded frame: keys, plus any REPL lines typed before it. */
+export interface FrameTape {
+  events: KeyEvent[]
+  repl: string[]
+}
+
 /** How many 60Hz ticks a time in seconds lasts. `1.5s` is 90. */
-export function ticksFor(value: unknown, at: { line: number; column: number }): number {
+export function ticksFor(value: unknown, at: { line: number; column: number }, what = 'wait'): number {
   if (!isQuantity(value) || value.unit.px !== 0 || value.unit.s !== 1 || value.value < 0 || !Number.isFinite(value.value)) {
-    throw new RuntimeError('E0902', 'wait expects a time in seconds, like 1.5s', at.line, at.column)
+    throw new RuntimeError('E0902', `${what} expects a time in seconds, like 1.5s`, at.line, at.column)
   }
   return Math.round(value.value * 60)
 }

@@ -42,7 +42,7 @@ import { isArray } from './collections.ts'
 import { collectionBuiltins } from './collections.ts'
 import { presentError, RuntimeError, SourceError, suggestName } from './errors.ts'
 import { mathBuiltins } from './math.ts'
-import { TICK_DT, ticksFor, type KeyEvent } from './clock.ts'
+import { TICK_DT, ticksFor, type FrameTape, type KeyEvent } from './clock.ts'
 import type { Host } from './host.ts'
 import { parse } from './parser.ts'
 import { mulberry32 } from './rng.ts'
@@ -200,7 +200,14 @@ export interface Game {
    * then keys, then collisions.
    */
   frame(events: KeyEvent[]): void
+  /** Run a snippet in the live game. Recorded so a later rewind replays it. */
+  eval(source: string): Value
+  /** True once after `rewind`, then false until the next one. */
+  rewound(): boolean
 }
+
+/** Thrown to leave the current frame after `rewind` has been requested. */
+const REWIND: unique symbol = Symbol('rewind')
 
 /** A task yielded this instead of a pause. The scheduler keeps the generator. */
 interface Suspend {
@@ -232,20 +239,39 @@ export function loadGame(source: string, options: InterpretOptions = {}): Game {
     if (error instanceof SourceError) throw presentError(error, source)
     throw error
   }
-  const machine = new Interpreter(options)
-  try {
-    const running = machine.run(program)
-    let step = running.next()
-    while (!step.done) step = running.next()
-  } catch (error) {
-    machine.publish()
-    if (error instanceof SourceError) throw presentError(error, source)
-    throw error
+  const holder: { machine: Interpreter } = { machine: undefined as unknown as Interpreter }
+  const boot = (): Interpreter => {
+    const machine = new Interpreter(options)
+    machine.setRewind((back) => {
+      const events = machine.rewindLog(back)
+      const next = boot()
+      holder.machine = next
+      next.beginReplay()
+      for (const batch of events) {
+        next.queueReplay(batch.repl)
+        next.frame(batch.events)
+      }
+      next.endReplay(events)
+      next.markRewound()
+    })
+    try {
+      const running = machine.run(program)
+      let step = running.next()
+      while (!step.done) step = running.next()
+    } catch (error) {
+      machine.publish()
+      if (error instanceof SourceError) throw presentError(error, source)
+      throw error
+    }
+    return machine
   }
+  holder.machine = boot()
   return {
-    hasHandlers: () => machine.handlerCount() > 0,
-    get: (name) => machine.read(name),
-    frame: (events) => machine.frame(events),
+    hasHandlers: () => holder.machine.handlerCount() > 0,
+    get: (name) => holder.machine.read(name),
+    frame: (events) => holder.machine.frame(events),
+    eval: (source) => holder.machine.evalSnippet(source),
+    rewound: () => holder.machine.consumeRewound(),
   }
 }
 
@@ -269,23 +295,31 @@ export function* debug(source: string, options: InterpretOptions = {}): Generato
 
 export class Environment {
   private readonly values = new Map<string, Value>()
+  /** Slot storage for the VM. The map stays the source of names for the inspector. */
+  private readonly locals: Value[] = []
+  private readonly localReady: boolean[] = []
+  /** Which slot a name was cached in, so a restored binding updates that slot. */
+  private readonly slots = new Map<string, number>()
 
   constructor(
     readonly parent: Environment | null = null,
     readonly label = 'block',
   ) {}
 
-  define(name: string, value: Value, at: SourceLocation): void {
+  define(name: string, value: Value, at: SourceLocation, slot?: number): void {
     if (this.values.has(name)) {
       throw new RuntimeError('E0201', `'${name}' is already defined in this scope`, at.line, at.column)
     }
     this.values.set(name, value)
+    if (slot !== undefined) this.putLocal(slot, name, value)
+    else this.syncSlot(name, value)
   }
 
   /** Change an existing name, walking outward. Does not create a binding. */
   assign(name: string, value: Value, at: SourceLocation): void {
     if (this.values.has(name)) {
       this.values.set(name, value)
+      this.syncSlot(name, value)
       return
     }
     if (this.parent) {
@@ -293,6 +327,37 @@ export class Environment {
       return
     }
     throw undefinedName(name, at, this.boundNames())
+  }
+
+  /** Read a slot, filling it from the name map after a snapshot restore. */
+  readLocal(slot: number, name: string, at: SourceLocation): Value {
+    if (this.localReady[slot]) return this.locals[slot] as Value
+    if (this.values.has(name)) {
+      const value = this.values.get(name) as Value
+      this.putLocal(slot, name, value)
+      return value
+    }
+    throw undefinedName(name, at, this.boundNames())
+  }
+
+  /** Write a slot the compiler already resolved to this environment. */
+  writeLocal(slot: number, name: string, value: Value, at: SourceLocation): void {
+    if (!this.localReady[slot] && !this.values.has(name)) {
+      throw undefinedName(name, at, this.boundNames())
+    }
+    this.putLocal(slot, name, value)
+    this.values.set(name, value)
+  }
+
+  private syncSlot(name: string, value: Value): void {
+    const slot = this.slots.get(name)
+    if (slot !== undefined) this.putLocal(slot, name, value)
+  }
+
+  private putLocal(slot: number, name: string, value: Value): void {
+    this.locals[slot] = value
+    this.localReady[slot] = true
+    this.slots.set(name, slot)
   }
 
   get(name: string, at: SourceLocation): Value {
@@ -366,6 +431,13 @@ class Interpreter {
   private ticks = 0
   private inTask = false
   private taskBaseDepth = 0
+  private log: FrameTape[] = []
+  private pending: string[] = []
+  private carry: string[] | null = null
+  private replaying = false
+  private requested: number | null = null
+  private justRewound = false
+  private onRewind: ((back: number) => void) | null = null
 
   constructor(options: InterpretOptions) {
     this.maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS
@@ -389,7 +461,106 @@ class Interpreter {
     return this.globals.get(name, { line: 1, column: 1 })
   }
 
+  private combine(op: '+' | '-' | '*', left: Value, right: Value, at: SourceLocation): Value {
+    const applied = applyOp(op, left, right)
+    if (applied.status === 'fail') throw new RuntimeError(applied.code, applied.detail, at.line, at.column)
+    if (applied.status === 'value') return applied.value as Value
+    throw new RuntimeError('E0212', `'${op}=' expects numbers, quantities, or vecs`, at.line, at.column)
+  }
+
+  setRewind(fn: (back: number) => void): void {
+    this.onRewind = fn
+  }
+
+  rewindLog(back: number): FrameTape[] {
+    const keep = Math.max(0, this.log.length - 1 - back)
+    return this.log.slice(0, keep)
+  }
+
+  queueReplay(repl: string[]): void {
+    this.carry = repl
+  }
+
+  beginReplay(): void {
+    this.replaying = true
+    this.log = []
+  }
+
+  endReplay(events: FrameTape[]): void {
+    this.replaying = false
+    this.log = events
+  }
+
+  markRewound(): void {
+    this.justRewound = true
+  }
+
+  consumeRewound(): boolean {
+    const flag = this.justRewound
+    this.justRewound = false
+    return flag
+  }
+
+  /** Run statements against the live game. A rewind inside the snippet restores the past. */
+  evalSnippet(source: string): Value {
+    let program: Program
+    try {
+      program = parse(source)
+    } catch (error) {
+      if (error instanceof SourceError) throw presentError(error, source)
+      throw error
+    }
+    const running = this.onlyPauses(this.playSnippet(program))
+    let step = running.next()
+    try {
+      while (!step.done) step = running.next()
+    } catch (error) {
+      if (error === REWIND) {
+        const back = this.requested
+        this.requested = null
+        if (!this.replaying && this.onRewind && back !== null) this.onRewind(back)
+        return null
+      }
+      if (error instanceof SourceError) throw presentError(error, source)
+      throw error
+    }
+    if (this.requested !== null) {
+      const back = this.requested
+      this.requested = null
+      if (!this.replaying && this.onRewind) this.onRewind(back)
+      return null
+    }
+    if (!this.replaying) this.pending.push(source)
+    const showed = program.body.some((statement) => statement.type === 'ExprStmt')
+    return showed ? step.value : null
+  }
+
+  private *playSnippet(program: Program): Generator<Step, Value, void> {
+    for (const statement of program.body) yield* this.execute(statement)
+    this.publish()
+    return this.result
+  }
+
   frame(events: KeyEvent[]): void {
+    const repl = this.replaying ? (this.carry ?? []) : this.pending.splice(0)
+    this.carry = null
+    if (!this.replaying) this.log.push({ events, repl })
+    if (this.replaying) {
+      for (const snippet of repl) this.evalSnippet(snippet)
+    }
+    try {
+      this.stepFrame(events)
+    } catch (error) {
+      if (error !== REWIND) throw error
+    }
+    if (this.requested === null) return
+    const back = this.requested
+    this.requested = null
+    if (this.replaying || !this.onRewind) return
+    this.onRewind(back)
+  }
+
+  private stepFrame(events: KeyEvent[]): void {
     this.steps = 0
     if (!this.started) {
       this.started = true
@@ -560,7 +731,10 @@ class Interpreter {
       case 'AssignStmt': {
         yield this.pauseAt(statement)
         this.guardStep(statement)
-        this.env.assign(statement.name, yield* this.evaluate(statement.value), statement)
+        const value = statement.op
+          ? this.combine(statement.op, this.env.get(statement.name, statement), yield* this.evaluate(statement.value), statement)
+          : yield* this.evaluate(statement.value)
+        this.env.assign(statement.name, value, statement)
         return
       }
       case 'ExprStmt': {
@@ -591,7 +765,9 @@ class Interpreter {
         this.guardStep(statement)
         const target = yield* this.evaluate(statement.object)
         const index = yield* this.evaluate(statement.index)
-        const value = yield* this.evaluate(statement.value)
+        const value = statement.op
+          ? this.combine(statement.op, this.readIndex(target, index, statement), yield* this.evaluate(statement.value), statement)
+          : yield* this.evaluate(statement.value)
         this.writeIndex(target, index, value, statement)
         return
       }
@@ -636,7 +812,9 @@ class Interpreter {
           const previous = this.env
           this.env = iteration
           try {
-            const condition = this.expectBoolean(yield* this.evaluate(statement.where), statement.where)
+            const condition = statement.where
+              ? this.expectBoolean(yield* this.evaluate(statement.where), statement.where)
+              : true
             if (condition) yield* this.executeBlock(statement.body)
           } finally {
             this.env = previous
@@ -758,12 +936,30 @@ class Interpreter {
         yield this.pauseAt(statement)
         this.guardStep(statement)
         const target = yield* this.evaluate(statement.object)
-        const value = yield* this.evaluate(statement.value)
+        let current: Value | null = null
+        if (statement.op) {
+          const field = getField(target, statement.name)
+          if (field.status === 'fail') {
+            throw new RuntimeError(field.code, field.detail, statement.nameLine, statement.nameColumn)
+          }
+          current = field.value as Value
+        }
+        const next = yield* this.evaluate(statement.value)
+        const value = statement.op ? this.combine(statement.op, current as Value, next, statement) : next
         const stored = setField(target, statement.name, value)
         if (stored.status === 'fail') {
           throw new RuntimeError(stored.code, stored.detail, statement.nameLine, statement.nameColumn)
         }
         return
+      }
+      case 'RewindStmt': {
+        yield this.pauseAt(statement)
+        this.guardStep(statement)
+        if (!this.onRewind) {
+          throw new RuntimeError('E0904', 'rewind is only available while a game is running', statement.line, statement.column)
+        }
+        this.requested = ticksFor(yield* this.evaluate(statement.time), statement, 'rewind')
+        throw REWIND
       }
       case 'ForInStmt': {
         const control = new Environment(this.env, 'for')
@@ -922,6 +1118,7 @@ class Interpreter {
         }
       case 'FieldExpr': {
         const target = yield* this.evaluate(expr.object)
+        if (isEntityType(target) && expr.name === 'count') return this.world.ofType(target.name).length
         const field = getField(target, expr.name)
         if (field.status === 'fail') throw new RuntimeError(field.code, field.detail, expr.nameLine, expr.nameColumn)
         return field.value as Value

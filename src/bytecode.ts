@@ -69,12 +69,23 @@ export const enum Op {
   WAIT_TIME,
   WAIT_UNTIL,
   TASK,
+  /** Read a compile-time slot. `arg` is depth * 1024 + slot. `extra` is the name. */
+  LOCAL_GET,
+  /** Write a compile-time slot. Same packing as LOCAL_GET. */
+  LOCAL_SET,
+  /** Define a name in the current scope at slot `arg`. `extra` is the name. */
+  LOCAL_DEF,
+  DUP,
+  DUP2,
+  REWIND,
 }
 
 export interface Ins {
   op: Op
   /** Constant index, name index, jump target, argument count, or function index. */
   arg: number
+  /** Name index for a slotted local. Absent on every other instruction. */
+  extra?: number
   line: number
   column: number
 }
@@ -154,7 +165,16 @@ const OP_NAME: Record<number, string> = {
   [Op.WAIT_TIME]: 'WAIT_TIME',
   [Op.WAIT_UNTIL]: 'WAIT_UNTIL',
   [Op.TASK]: 'TASK',
+  [Op.LOCAL_GET]: 'LOCAL_GET',
+  [Op.LOCAL_SET]: 'LOCAL_SET',
+  [Op.LOCAL_DEF]: 'LOCAL_DEF',
+  [Op.DUP]: 'DUP',
+  [Op.DUP2]: 'DUP2',
+  [Op.REWIND]: 'REWIND',
 }
+
+/** Packed into one instruction argument: depth in the high bits, slot in the low bits. */
+export const SLOT_SPAN = 1024
 
 export function isJump(op: Op): boolean {
   return op === Op.JUMP || op === Op.JUMP_IF_FALSE || op === Op.JUMP_IF_TRUE
@@ -211,6 +231,16 @@ function formatIns(ins: Ins, chunk: Chunk, ip: number): string {
     case Op.ENTITY_TYPE:
       detail = chunk.names[ins.arg] ?? ''
       break
+    case Op.LOCAL_DEF:
+      detail = chunk.names[ins.extra ?? 0] ?? ''
+      break
+    case Op.LOCAL_GET:
+    case Op.LOCAL_SET: {
+      const depth = Math.floor(ins.arg / SLOT_SPAN)
+      const name = chunk.names[ins.extra ?? 0] ?? ''
+      detail = depth === 0 ? name : `${name} ^${depth}`
+      break
+    }
     case Op.SPAWN:
       detail = String(ins.arg)
       break

@@ -64,7 +64,10 @@ async function bundlePlayer(projectRoot: string): Promise<string> {
   return chunk.code
 }
 
+const pages = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.GITHUB_PAGES === '1'
+
 export default defineConfig({
+  base: pages ? '/spool/' : '/',
   plugins: [playerBundle()],
   test: {
     globals: false,

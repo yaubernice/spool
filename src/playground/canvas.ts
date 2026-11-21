@@ -106,8 +106,53 @@ export function playDrawing(
   }
 }
 
+/** Games draw on a 360×240 field. The preview scales that field to the canvas. */
+export const FIELD_W = 360
+export const FIELD_H = 240
+
+export function fieldTransform(width: number, height: number): { scale: number; ox: number; oy: number } {
+  const scale = Math.min(width / FIELD_W, height / FIELD_H)
+  return { scale, ox: (width - FIELD_W * scale) / 2, oy: (height - FIELD_H * scale) / 2 }
+}
+
+/** Map a pointer into game coordinates. */
+export function fieldPoint(
+  canvas: HTMLCanvasElement,
+  clientX: number,
+  clientY: number,
+  cameraX: number,
+  cameraY: number,
+): { x: number; y: number } {
+  const rect = canvas.getBoundingClientRect()
+  const width = canvas.clientWidth
+  const height = canvas.clientHeight
+  const { scale, ox, oy } = fieldTransform(width, height)
+  const x = ((clientX - rect.left) / Math.max(1, rect.width)) * width
+  const y = ((clientY - rect.top) / Math.max(1, rect.height)) * height
+  return { x: (x - ox) / scale + cameraX, y: (y - oy) / scale + cameraY }
+}
+
+export interface DebugOverlay {
+  grid: boolean
+  bounds: boolean
+  labels: boolean
+  velocity: boolean
+  selected: number | null
+  entities: { id: number; name: string; fields: { name: string; value: string }[] }[]
+}
+
+export interface RewindWash {
+  tint: boolean
+  ghosts: { x: number; y: number }[]
+}
+
 /** Paint a display list. The update loop does not call this. */
-export function paintDisplay(canvas: HTMLCanvasElement, display: Display): void {
+export function paintDisplay(
+  canvas: HTMLCanvasElement,
+  display: Display,
+  overlay?: DebugOverlay | null,
+  wash?: RewindWash | null,
+): void {
   const ctx = prepare(canvas)
   if (!ctx) return
   const width = canvas.clientWidth
@@ -115,7 +160,11 @@ export function paintDisplay(canvas: HTMLCanvasElement, display: Display): void 
   ctx.clearRect(0, 0, width, height)
   ctx.fillStyle = display.background
   ctx.fillRect(0, 0, width, height)
+  ctx.imageSmoothingEnabled = false
+  const fit = fieldTransform(width, height)
   ctx.save()
+  ctx.translate(fit.ox, fit.oy)
+  ctx.scale(fit.scale, fit.scale)
   ctx.translate(-display.cameraX, -display.cameraY)
   for (const op of display.ops) {
     if (op.kind === 'rect') {
@@ -149,7 +198,86 @@ export function paintDisplay(canvas: HTMLCanvasElement, display: Display): void 
       ctx.fillText(op.art, op.x, op.y + 32)
     }
   }
+  if (overlay) paintOverlay(ctx, overlay)
+  if (wash?.tint) {
+    ctx.fillStyle = 'rgba(110, 150, 255, 0.28)'
+    ctx.fillRect(-20, -20, FIELD_W + 40, FIELD_H + 40)
+  }
+  if (wash) {
+    ctx.fillStyle = 'rgba(244, 239, 230, 0.45)'
+    for (const ghost of wash.ghosts) {
+      ctx.beginPath()
+      ctx.arc(ghost.x, ghost.y, 5, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }
   ctx.restore()
+}
+
+function paintOverlay(ctx: CanvasRenderingContext2D, overlay: DebugOverlay): void {
+  if (overlay.grid) {
+    ctx.save()
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)'
+    ctx.lineWidth = 1
+    for (let n = 0; n <= 400; n += 40) {
+      ctx.beginPath()
+      ctx.moveTo(n, 0)
+      ctx.lineTo(n, 280)
+      ctx.moveTo(0, n)
+      ctx.lineTo(400, n)
+      ctx.stroke()
+    }
+    ctx.restore()
+  }
+  for (const entity of overlay.entities) {
+    const x = fieldNum(entity, 'x')
+    const y = fieldNum(entity, 'y')
+    if (x === null || y === null) continue
+    const selected = entity.id === overlay.selected
+    if (overlay.bounds) {
+      const r = fieldNum(entity, 'r')
+      const w = fieldNum(entity, 'w')
+      const h = fieldNum(entity, 'h')
+      ctx.save()
+      ctx.strokeStyle = selected ? '#4ec9b0' : 'rgba(78, 201, 176, 0.7)'
+      ctx.lineWidth = selected ? 2 : 1
+      if (r !== null) {
+        ctx.beginPath()
+        ctx.arc(x, y, r, 0, Math.PI * 2)
+        ctx.stroke()
+      } else if (w !== null && h !== null) {
+        ctx.strokeRect(x - w / 2, y - h / 2, w, h)
+      }
+      ctx.restore()
+    }
+    if (overlay.velocity) {
+      const vx = fieldNum(entity, 'vx')
+      const vy = fieldNum(entity, 'vy')
+      if (vx !== null && vy !== null) {
+        ctx.save()
+        ctx.strokeStyle = '#f2c14e'
+        ctx.beginPath()
+        ctx.moveTo(x, y)
+        ctx.lineTo(x + vx * 0.15, y + vy * 0.15)
+        ctx.stroke()
+        ctx.restore()
+      }
+    }
+    if (overlay.labels || selected) {
+      ctx.save()
+      ctx.fillStyle = '#f4efe6'
+      ctx.font = '11px sans-serif'
+      ctx.fillText(`${entity.name}#${entity.id}`, x + 6, y - 6)
+      ctx.restore()
+    }
+  }
+}
+
+function fieldNum(entity: DebugOverlay['entities'][number], name: string): number | null {
+  const field = entity.fields.find((item) => item.name === name)
+  if (!field) return null
+  const matched = /^-?\d+(?:\.\d+)?/.exec(field.value)
+  return matched ? Number(matched[0]) : null
 }
 
 function prepare(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {

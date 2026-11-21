@@ -126,6 +126,7 @@ export function renderEntities(
   for (const entity of entities) {
     const block = document.createElement('section')
     block.className = 'scope'
+    block.dataset.entity = String(entity.id)
     const title = document.createElement('h3')
     title.textContent = `${entity.name}#${entity.id}`
     const list = document.createElement('ul')
@@ -359,7 +360,12 @@ function statementNode(statement: Stmt): TreeNode {
     case 'DespawnStmt':
       return make('DespawnStmt', '', statement, [exprNode(statement.entity)])
     case 'EachStmt':
-      return make('EachStmt', statement.name, statement, [exprNode(statement.where), blockNode(statement.body, 'body')])
+      return make('EachStmt', statement.name, statement, [
+        statement.where ? exprNode(statement.where) : make('where', '', statement, []),
+        blockNode(statement.body, 'body'),
+      ])
+    case 'RewindStmt':
+      return make('RewindStmt', '', statement, [exprNode(statement.time)])
     case 'WhenStmt':
       return make('WhenStmt', `${statement.leftType} ${statement.rightType}`, statement, [blockNode(statement.body, 'body')])
     case 'TaskStmt':
@@ -509,7 +515,9 @@ function countStmt(statement: Stmt): number {
     case 'DespawnStmt':
       return 1 + countExpr(statement.entity)
     case 'EachStmt':
-      return 1 + countExpr(statement.where) + countBlock(statement.body)
+      return 1 + (statement.where ? countExpr(statement.where) : 0) + countBlock(statement.body)
+    case 'RewindStmt':
+      return 1 + countExpr(statement.time)
     case 'FieldAssignStmt':
       return 1 + countExpr(statement.object) + countExpr(statement.value)
     case 'IndexAssignStmt':

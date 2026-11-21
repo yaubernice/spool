@@ -2,11 +2,13 @@ import type { SourceLocation } from './ast.ts'
 import {
   isEntity,
   isQuantity,
+  isVec,
   sameUnit,
   unitLabel,
   type EntityTypeValue,
   type EntityValue,
   type Unit,
+  type VecValue,
 } from './data.ts'
 import { RuntimeError } from './errors.ts'
 
@@ -27,7 +29,8 @@ export class World {
     pairs: { name: string; value: unknown }[],
     at: SourceLocation,
   ): EntityValue {
-    const required = type.fields.filter((name) => name !== 'x' && name !== 'y')
+    const placed = new Set(type.fields.includes('pos') ? ['x', 'y', 'pos'] : ['x', 'y'])
+    const required = type.fields.filter((name) => !placed.has(name))
     const given = new Map(pairs.map((pair) => [pair.name, pair.value]))
     if (given.size !== pairs.length) {
       const seen = new Set<string>()
@@ -37,7 +40,7 @@ export class World {
       }
     }
     for (const name of given.keys()) {
-      if (name === 'x' || name === 'y') {
+      if (placed.has(name)) {
         throw new RuntimeError('E0803', `Field '${name}' is set by at`, at.line, at.column)
       }
       if (!required.includes(name)) {
@@ -50,6 +53,10 @@ export class World {
       }
     }
     const fields: Record<string, unknown> = { x, y }
+    if (type.fields.includes('pos')) {
+      const center: VecValue = { type: 'vec', x: x as VecValue['x'], y: y as VecValue['y'] }
+      fields.pos = center
+    }
     for (const name of required) fields[name] = given.get(name)
     const entity: EntityValue = { type: 'entity', id: this.nextId++, name: type.name, alive: true, fields }
     this.entities.push(entity)
@@ -147,11 +154,14 @@ interface Rect {
 
 function shapeOf(entity: EntityValue, at: SourceLocation): Circle | Rect {
   const has = (name: string) => Object.prototype.hasOwnProperty.call(entity.fields, name)
-  if (!has('x') || !has('y')) {
+  const pos = entity.fields.pos
+  const xRaw = isVec(pos) ? pos.x : entity.fields.x
+  const yRaw = isVec(pos) ? pos.y : entity.fields.y
+  if (xRaw === undefined || yRaw === undefined) {
     throw new RuntimeError('E0802', `Entity ${entity.name} has no position`, at.line, at.column)
   }
-  const x = component(entity.fields.x, `${entity.name}.x`, at)
-  const y = component(entity.fields.y, `${entity.name}.y`, at)
+  const x = component(xRaw, `${entity.name}.x`, at)
+  const y = component(yRaw, `${entity.name}.y`, at)
   if (has('r')) {
     const r = component(entity.fields.r, `${entity.name}.r`, at)
     return { kind: 'circle', x: x.n, y: y.n, r: r.n, parts: [x, y, r] }

@@ -44,9 +44,13 @@ export type TokenType =
   | 'UNTIL'
   | 'EVERY'
   | 'AFTER'
+  | 'REWIND'
   | 'PLUS'
   | 'MINUS'
   | 'STAR'
+  | 'PLUS_ASSIGN'
+  | 'MINUS_ASSIGN'
+  | 'STAR_ASSIGN'
   | 'SLASH'
   | 'PERCENT'
   | 'ASSIGN' // =
@@ -115,6 +119,7 @@ const KEYWORDS: Readonly<Record<string, TokenType>> = {
   until: 'UNTIL',
   every: 'EVERY',
   after: 'AFTER',
+  rewind: 'REWIND',
 }
 
 /** Turn source text into tokens. Throws LexError on bad input. */
@@ -186,11 +191,11 @@ class Lexer {
     const c = this.advance()
     switch (c) {
       case '+':
-        return this.addToken('PLUS')
+        return this.addToken(this.match('=') ? 'PLUS_ASSIGN' : 'PLUS')
       case '-':
-        return this.addToken('MINUS')
+        return this.addToken(this.match('=') ? 'MINUS_ASSIGN' : 'MINUS')
       case '*':
-        return this.addToken('STAR')
+        return this.addToken(this.match('=') ? 'STAR_ASSIGN' : 'STAR')
       case '/':
         return this.addToken('SLASH')
       case '%':

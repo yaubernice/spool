@@ -37,6 +37,7 @@ import type {
   WaitStmt,
   EveryStmt,
   AfterStmt,
+  RewindStmt,
   RepeatStmt,
   ReturnStmt,
   SourceLocation,
@@ -190,6 +191,7 @@ class Parser {
     if (this.check('WAIT')) return this.waitStatement()
     if (this.check('EVERY')) return this.everyStatement()
     if (this.check('AFTER')) return this.afterStatement()
+    if (this.check('REWIND')) return this.rewindStatement()
     if (this.check('FN') && this.peekNext().type === 'IDENTIFIER') return this.fnStatement()
     if (this.check('RETURN')) return this.returnStatement()
     if (this.check('IDENTIFIER') && this.peekNext().type === 'ASSIGN') return this.assignStatement()
@@ -212,7 +214,7 @@ class Parser {
     const name = this.advance()
     this.consume('ASSIGN', "'='")
     const value = this.climb(0)
-    return { type: 'AssignStmt', name: name.lexeme, value, ...this.span(name) }
+    return { type: 'AssignStmt', name: name.lexeme, op: null, value, ...this.span(name) }
   }
 
   /** `if cond { ... }` or `if cond { ... } else { ... }`. */
@@ -272,16 +274,22 @@ class Parser {
     return { type: 'DespawnStmt', entity, ...this.span(keyword) }
   }
 
-  /** `each ball in Ball where ball.x > 0 { }`. */
+  /** `each ball in Ball { }` or `each ball in Ball where ball.x > 0 { }`. */
   private eachStatement(): EachStmt {
     const keyword = this.advance()
     const name = this.consume('IDENTIFIER', 'a variable name')
     this.consume('IN', "'in'")
     const typeName = this.consume('IDENTIFIER', 'an entity name')
-    this.consume('WHERE', "'where'")
-    const where = this.beforeBlock(() => this.climb(0))
+    const where = this.check('WHERE') ? (this.advance(), this.beforeBlock(() => this.climb(0))) : null
     const body = this.block()
     return { type: 'EachStmt', name: name.lexeme, typeName: typeName.lexeme, where, body, ...this.span(keyword) }
+  }
+
+  /** `rewind 2s`. */
+  private rewindStatement(): RewindStmt {
+    const keyword = this.advance()
+    const time = this.climb(0)
+    return { type: 'RewindStmt', time, ...this.span(keyword) }
   }
 
   /** `when ball in Ball touches wall in Wall { }`. */
@@ -492,7 +500,17 @@ class Parser {
     const name = this.peek()
     const arity = BUILTIN_ARITY[name.lexeme]
     const next = this.peekNext().type
-    if (arity === undefined || next === 'LPAREN' || next === 'LBRACKET' || next === 'ASSIGN') return null
+    if (
+      arity === undefined ||
+      next === 'LPAREN' ||
+      next === 'LBRACKET' ||
+      next === 'ASSIGN' ||
+      next === 'PLUS_ASSIGN' ||
+      next === 'MINUS_ASSIGN' ||
+      next === 'STAR_ASSIGN'
+    ) {
+      return null
+    }
 
     this.advance()
     const args: Expr[] = []
@@ -521,22 +539,26 @@ class Parser {
    */
   private expressionStatement(): Stmt {
     const expression = this.climb(0)
-    if (!this.check('ASSIGN')) {
+    const updating =
+      this.check('ASSIGN') || this.check('PLUS_ASSIGN') || this.check('MINUS_ASSIGN') || this.check('STAR_ASSIGN')
+    if (!updating) {
       return { type: 'ExprStmt', expression, ...this.spanFrom(expression) }
     }
-    this.advance()
+    const token = this.advance()
+    const op = token.type === 'PLUS_ASSIGN' ? '+' : token.type === 'MINUS_ASSIGN' ? '-' : token.type === 'STAR_ASSIGN' ? '*' : null
     const value = this.climb(0)
     const location = this.spanFrom(expression)
     location.endLine = value.endLine ?? value.line
     location.endColumn = value.endColumn ?? value.column
     if (expression.type === 'VariableExpr') {
-      return { type: 'AssignStmt', name: expression.name, value, ...location }
+      return { type: 'AssignStmt', name: expression.name, op, value, ...location }
     }
     if (expression.type === 'IndexExpr') {
       const assign: IndexAssignStmt = {
         type: 'IndexAssignStmt',
         object: expression.object,
         index: expression.index,
+        op,
         value,
         ...location,
       }
@@ -547,6 +569,7 @@ class Parser {
         type: 'FieldAssignStmt',
         object: expression.object,
         name: expression.name,
+        op,
         value,
         nameLine: expression.nameLine,
         nameColumn: expression.nameColumn,

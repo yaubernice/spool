@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pipkin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <style>
+      :root { --ui: 'Inter', ui-sans-serif, system-ui, sans-serif; --ease: cubic-bezier(0.2, 0.8, 0.2, 1); }
+      body { margin: 0; background: #120e16; color: #f4efe8; font-family: var(--ui); }
+      header { text-align: center; padding: 28px 24px 8px; }
+      h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.03em; margin: 0; }
+      header p { margin: 4px 0 0; color: #b7aea4; font-size: 13px; }
+      label { display: flex; justify-content: center; gap: 8px; align-items: center; color: #b7aea4; margin-top: 14px; font-size: 13px; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; padding: 20px 24px 40px; max-width: 980px; margin: 0 auto; }
+      figure { margin: 0; background: #1c1720; border-radius: 8px; padding: 18px 12px 12px; display: grid; justify-items: center; gap: 8px; }
+      figcaption { font-size: 14px; color: #c8bfb6; }
+      .pipkin {
+        width: var(--size, 150px); height: auto; overflow: visible;
+        --core: #fff6d2; --mid: #ffb14a; --edge: #ff742c; --bloom: #ff8a3c;
+      }
+      .pipkin .halo { opacity: 0.62; }
+      .pipkin .bloom { opacity: 0.9; }
+      .pipkin .shine { fill: #fff; opacity: 0.72; }
+      .pipkin .cheek { fill: #ffd5dc; opacity: 0.45; }
+      .pipkin .catch, .pipkin .star { fill: #fff; }
+      .pipkin .star { transform-box: fill-box; transform-origin: center; animation: twinkle 1.5s ease-in-out infinite; }
+      .pipkin .mote { fill: #fff; opacity: 0.85; transform-box: fill-box; transform-origin: center; animation: twinkle 2.4s ease-in-out infinite; }
+      .pipkin .mote.b { animation-delay: 0.6s; }
+      .pipkin .mote.c { animation-delay: 1.2s; }
+      .pipkin .nose { fill: #fff; opacity: 0.8; }
+      .pipkin .inner { fill: var(--edge); opacity: 0.55; }
+      .pipkin .whiskers { fill: none; stroke: #fff; stroke-width: 0.45; stroke-linecap: round; opacity: 0.4; }
+      .pipkin .gaze { transform-box: fill-box; transform-origin: center; transform: translate(calc(var(--look-x, 0) * 2.2px), calc(var(--look-y, 0) * 2.2px)); }
+      .pipkin .smile-eye { fill: none; stroke: #3a241c; stroke-width: 2.3; stroke-linecap: round; opacity: 0; }
+      .pipkin .lid { fill: var(--mid); transform-box: fill-box; transform-origin: center; transform: scaleY(0); }
+      .pipkin .zzz { opacity: 0; fill: var(--core); font-size: 12px; font-family: var(--ui); }
+      .pipkin .ear, .pipkin .inner, .pipkin .tail { transform-box: fill-box; }
+      .pipkin .ear.left, .pipkin .inner.left { transform-origin: 80% 100%; }
+      .pipkin .ear.right, .pipkin .inner.right { transform-origin: 20% 100%; }
+      .pipkin .tail { transform-origin: 0% 80%; }
+      .pipkin[data-mood='idle'] .lid { animation: pipkin-blink 5.6s infinite; }
+      .pipkin[data-mood='happy'] { --core: #fffce4; --mid: #ffe06a; --edge: #ffb020; --bloom: #ffd15c; }
+      .pipkin[data-mood='cheer'] { --core: #ffffff; --mid: #ffe38a; --edge: #ffb23a; --bloom: #ffe08a; }
+      .pipkin[data-mood='giggle'] { --core: #fff0f6; --mid: #ffb6d8; --edge: #ff6eae; --bloom: #ff8ec4; }
+      .pipkin[data-mood='worried'] { --core: #ffe8f4; --mid: #ffb0d2; --edge: #ff6fa8; --bloom: #ff8cbc; }
+      .pipkin[data-mood='thinking'] { --core: #f6ecff; --mid: #d2b0ff; --edge: #8d62e0; --bloom: #b48cf0; }
+      .pipkin[data-mood='tangled'] { --core: #ffe4d8; --mid: #ff7d62; --edge: #e03838; --bloom: #ff5340; }
+      .pipkin[data-mood='surprised'] { --core: #ffffff; --mid: #ffe7b0; --edge: #ff8a40; --bloom: #ffd08a; }
+      .pipkin[data-mood='sleepy'] { --core: #ffe6d4; --mid: #f0b48e; --edge: #d88868; --bloom: #e09878; }
+      .pipkin[data-mood='asleep'] { --core: #f0d8cc; --mid: #e0b09a; --edge: #c49080; --bloom: #d0a090; }
+      .pipkin[data-mood='dizzy'] { --core: #eafff6; --mid: #8dffdf; --edge: #34d4b4; --bloom: #62ffd8; }
+      .pipkin[data-mood='rewind'] { --core: #e8f0ff; --mid: #a8bcff; --edge: #6a78ee; --bloom: #8aa0ff; }
+      .pipkin[data-mood='typing'] { --core: #fff4cc; --mid: #ffc45e; --edge: #ff8634; --bloom: #ffb25a; }
+      .pipkin[data-mood='happy'] .gaze, .pipkin[data-mood='giggle'] .gaze,
+      .pipkin[data-mood='sleepy'] .gaze, .pipkin[data-mood='asleep'] .gaze { opacity: 0; }
+      .pipkin[data-mood='happy'] .smile-eye, .pipkin[data-mood='giggle'] .smile-eye,
+      .pipkin[data-mood='sleepy'] .smile-eye, .pipkin[data-mood='asleep'] .smile-eye { opacity: 1; }
+      .pipkin[data-mood='asleep'] .zzz, .pipkin[data-mood='sleepy'] .zzz { opacity: 1; }
+      .pipkin[data-mood='asleep'] .halo { opacity: 0.28; }
+      .pipkin[data-mood='surprised'] .gaze { transform: translate(calc(var(--look-x, 0) * 2.2px), calc(var(--look-y, 0) * 2.2px)) scale(1.22); }
+      .pipkin[data-mood='worried'] .gaze { transform: translate(2.4px, 1px); }
+      .pipkin[data-mood='tangled'] .eye.left .gaze { transform: scale(0.72); }
+      .pipkin[data-mood='tangled'] .eye.right .gaze { transform: scale(1.16); }
+      .pipkin[data-mood='tangled'] .ear.right, .pipkin[data-mood='tangled'] .inner.right { transform: rotate(14deg); }
+      .pipkin[data-mood='sleepy'] .ear.left, .pipkin[data-mood='asleep'] .ear.left,
+      .pipkin[data-mood='sleepy'] .inner.left, .pipkin[data-mood='asleep'] .inner.left { transform: rotate(12deg); }
+      .pipkin[data-mood='sleepy'] .ear.right, .pipkin[data-mood='asleep'] .ear.right,
+      .pipkin[data-mood='sleepy'] .inner.right, .pipkin[data-mood='asleep'] .inner.right { transform: rotate(-12deg); }
+      .pipkin[data-mood='thinking'] { --look-y: -0.8; }
+      .pipkin[data-mood='rewind'] { animation: sway 0.9s ease-in-out infinite; transform-origin: 60px 120px; }
+      .pipkin[data-mood='dizzy'] .gaze { animation: swirl 0.45s linear infinite; }
+      .pipkin[data-mood='cheer'] .ear.left, .pipkin[data-mood='cheer'] .inner.left { transform: rotate(-16deg); }
+      .pipkin[data-mood='cheer'] .ear.right, .pipkin[data-mood='cheer'] .inner.right { transform: rotate(16deg); }
+      .pipkin[data-mood='cheer'] .gaze { transform: scale(1.18); }
+      .pipkin[data-mood='giggle'] { animation: giggle 0.4s ease infinite; }
+      .pipkin[data-mood='typing'] { animation: tap 0.45s ease infinite; }
+      @keyframes pipkin-blink { 0%, 92%, 100% { transform: scaleY(0); } 96% { transform: scaleY(1); } }
+      @keyframes tap { 50% { transform: translateY(-3px); } }
+      @keyframes giggle { 25% { transform: rotate(-4deg); } 75% { transform: rotate(4deg); } }
+      @keyframes sway { 50% { transform: rotate(-7deg); } }
+      @keyframes swirl { to { transform: rotate(360deg); } }
+      @keyframes twinkle { 0%, 100% { opacity: 0.25; transform: scale(0.65); } 50% { opacity: 1; transform: scale(1); } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Pipkin</h1>
+      <p>Expression sheet</p>
+      <label>Size <input id="size" type="range" min="80" max="220" value="150" /></label>
+    </header>
+    <div id="grid" class="grid"></div>
+    <script type="module">
+      import { pipkinMarkup } from '../src/playground/mascot.ts'
+      const states = [
+        ['happy', 'Happy'],
+        ['cheer', 'Excited'],
+        ['worried', 'Shy'],
+        ['sleepy', 'Sleepy'],
+        ['surprised', 'Surprised'],
+        ['tangled', 'Mildly grumpy'],
+        ['idle', 'Idle'],
+        ['typing', 'Typing'],
+        ['thinking', 'Thinking'],
+        ['giggle', 'Poked'],
+        ['dizzy', 'Dizzy'],
+        ['rewind', 'Rewind'],
+        ['asleep', 'Asleep'],
+        ['look', 'Look at'],
+      ]
+      const grid = document.querySelector('#grid')
+      for (const [mood, label] of states) {
+        const figure = document.createElement('figure')
+        figure.innerHTML = pipkinMarkup()
+        const svg = figure.querySelector('svg')
+        svg.dataset.mood = mood === 'look' ? 'idle' : mood
+        if (mood === 'look') {
+          svg.style.setProperty('--look-x', '0.8')
+          svg.style.setProperty('--look-y', '-0.2')
+        }
+        const caption = document.createElement('figcaption')
+        caption.textContent = label
+        figure.append(caption)
+        grid.append(figure)
+      }
+      document.querySelector('#size').addEventListener('input', (event) => {
+        document.documentElement.style.setProperty('--size', event.target.value + 'px')
+      })
+    </script>
+  </body>
+</html>

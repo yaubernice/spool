@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# One-off bench measurement. Not part of npm test.
+bench-results.json
+tests/bench-numbers.test.ts
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -2,6 +2,15 @@
 
 Spool is a small programming language for games, running in the browser. The name is a film spool: a length of time you can wind back. A program can draw, listen, keep entities, wait on a clock, and rewind. The turtle is one module.
 
+- `+=`, `-=`, and `*=` update a name, a field, or an index.
+- `vec(x, y)` is a position or a velocity. An entity field named `pos` is the center, set by `at`, and collisions read it.
+- `each ball in Ball { }` visits every living entity. `where` is optional.
+- `when ball in Ball touches pad in Paddle { }` runs on every overlapping frame.
+- `clamp`, `lerp`, and `bounce` work on numbers, quantities, and, for `bounce` and `lerp`, vecs.
+- `task`, `wait`, `every`, and `after` run on the 60Hz clock.
+- `rewind 2s` restores entities, variables, the random stream, and running tasks. An energy bar is ordinary game code: check it, then rewind, and the restored bar is the lower past value.
+- Pong is 35 lines, Snake 45, Breakout 41, and the rewind demo `undo.spool` is 65.
+
 The implementation is a hand-written **lexer**, **recursive descent parser**, **tree-walking interpreter**, and **stack VM** in TypeScript. No parsing libraries. Tests run the same programs on both backends.
 
 ## Language spec
@@ -14,7 +23,7 @@ Keep it small on purpose.
 - Arrays: `[1, 2, 3]`. Read with `a[i]`. Write with `a[i] = v`. Indexes are whole numbers starting at 0. A negative index is out of range.
 - `len(array)` and `len(string)` return the length. `push(array, value)` adds an item and returns the same array.
 - Define a name: `let size = 50`. A second `let` of the same name in one scope is an error.
-- Change a name that already exists, including one outside the current block: `n = n + 1`
+- Change a name that already exists, including one outside the current block: `n = n + 1`, `n += 1`, `n -= 1`, `n *= 2`. The same three updates work on `items[i]` and `ball.vel`.
 - Maps: `{ "ada": 10, bea: 12 }`. A bare key is the name, not a lookup. Read and write with `m["ada"]`. Missing keys are an error. `for k in m` visits keys in insertion order.
 - Records: `record Paddle { x, y }` then `Paddle { x: 1px, y: 2px }`. Fields are `p.x` and `p.x = 1px`. Construction must supply every field.
 - `vec(x, y)` is a pair. `+` and `-` are component-wise. `*` and `/` take a scalar. Both components share a unit. `v.x` and `v.y` read or write a component. `==` compares vecs by value.
@@ -58,6 +67,9 @@ Keep it small on purpose.
 | `random()` | A number from 0 up to, but not including, 1 |
 | `min(a, b, ...)` `max(a, b, ...)` | Smallest or largest of two or more numbers |
 | `hsl(h, s, l)` | A color string. `h` is the hue in degrees, `s` and `l` are percentages |
+| `clamp(value, low, high)` | Lowest and highest share a unit with `value` |
+| `lerp(a, b, t)` | `t` is a plain number. `a` and `b` are numbers, quantities, or vecs |
+| `bounce(v)` | Negate a number, a quantity, or a vec |
 | `len(value)` | Length of an array or a string |
 | `push(array, value)` | Append `value` and return the array |
 
@@ -73,7 +85,7 @@ turtle.turn(90)
 
 `use name` binds a module the host registered under that name. A call is `turtle.forward(40)`. The interpreter never hears about a canvas, the DOM, or Web Audio. It only sees the functions the host handed it. `use` of a name the host did not register is an error. Assigning to a module is an error.
 
-The playground registers `turtle`, `draw`, `input`, and `audio`. It also keeps the turtle commands as bare names, so an older program can still say `forward 40` without `use turtle`.
+The playground registers `turtle`, `draw`, `input`, and `audio`. It also keeps the turtle commands as bare names, so an older program can still say `forward 40` without `use turtle`. The page registers `mascot` as well. `mascot.react(name)` asks Pipkin for a reaction. The gallery games do not use it, and neither engine draws it.
 
 | Module | Calls |
 |--------|--------|
@@ -81,6 +93,7 @@ The playground registers `turtle`, `draw`, `input`, and `audio`. It also keeps t
 | `draw` | `background` `camera` `rect` `circle` `line` `text` `sprite` |
 | `input` | `key` `mouse` `click` |
 | `audio` | `beep` `tone` `play` |
+| `mascot` | `react`. The page only. Not part of an exported game |
 
 `draw` records shapes. The page paints them after the update. Coordinates are numbers or `px`. The origin is the top left, and y grows downward. `sprite` draws an emoji, or pixel art when the string contains a newline (`.` and space are empty). `input.key` is true while the key is held. `input.mouse` is a px vec. `input.click` is true for the frame the button goes down. `audio` records a cue. The page plays it. `beep(freq, duration)` is a square wave. `tone` takes `sine`, `square`, `triangle`, or `saw`. `play` is `hit`, `score`, or `boom`. Frequency is a plain number above 0. Duration is a time in seconds.
 
@@ -218,13 +231,13 @@ flowchart TD
   optimizer --> vm[Stack VM]
   walker --> world[Entities, tasks, and the 60Hz clock]
   vm --> world
-  walker --> host[Host modules: turtle, draw, input, audio]
+  walker --> host[Host modules: turtle, draw, input, audio, mascot]
   vm --> host
   world --> page[Playground or an exported HTML file]
   host --> page
 ```
 
-The playground runs the VM. The tree-walker is still the reference implementation, and the tests run every behavior on both.
+The playground runs the VM. The tree-walker is still the reference implementation, and the tests run every behavior on both. Neither engine touches the canvas. `rewind` restores a VM image, or replays the same frames on the tree-walker, including entities, variables, the random stream, and waiting tasks.
 
 | File | Role |
 |------|------|
@@ -250,7 +263,8 @@ The playground runs the VM. The tree-walker is still the reference implementatio
 | `src/image.ts` | JSON image of the VM, including tasks and entities |
 | `src/player.ts` | The runtime inside an exported HTML file |
 | `src/export.ts` | Wraps a program and that runtime in one page |
-| `src/playground/` | Editor, canvas, inspector, debugger, timeline, and the bench worker |
+| `src/playground/` | Studio shell, editor, canvas, inspector, Pipkin, timeline, and the bench worker |
+| `docs/mascot-sheet.html` | Pipkin's expression sheet |
 
 Runtime guards: a step limit and a call-depth limit, so an infinite loop or a runaway recursion fails safely instead of freezing the page.
 
@@ -258,7 +272,7 @@ Runtime guards: a step limit and a call-depth limit, so an infinite loop or a ru
 
 **Two backends, one language.** The tree-walker is easy to read: each AST node is a function. The VM is there so the playground can show bytecode and so a tight recursive program can run faster. Tests call both and expect the same values, the same errors, and the same drawings. The optimizer is off in those tests. The playground turns both passes on, and a separate test checks that the gallery still draws with the passes on. Division by zero is not folded, so `1 / 0` still fails at the `/`.
 
-**Closures share the scope object.** A function remembers the environment it was created in, not a copy of the values. That is why a named function can call itself: the name is written into that environment before the call. A `for` loop copies the counter into a fresh scope on every pass, so a function created in the body keeps that pass's `i`. Resolving names at run time costs a scope walk, and it means the compiler does not have to number slots. That trade is why a tiny loop does not get faster on the VM. The Bench tab times it.
+**Closures share the scope object.** A function remembers the environment it was created in, not a copy of the values. That is why a named function can call itself: the name is written into that environment before the call. A `for` loop copies the counter into a fresh scope on every pass, so a function created in the body keeps that pass's `i`. The VM compiler numbers the names it can see and reads them by slot. A name that is not defined yet still resolves when the instruction runs. The tree-walker still looks names up, and the tests keep that as the reference.
 
 **The debugger pauses on statements, and that trace is a recording.** Both engines yield before each statement. The page stores up to 10,000 of those pauses, with the variables, the call stack, and how many turtle strokes existed. Dragging the timeline draws the strokes from the start up to that pause. It does not restart the machine at that point. Step forward along the recording until the live end, and only then does another statement run. If the cap is hit, the run continues and the timeline says later steps were not recorded.
 
@@ -272,7 +286,7 @@ Runtime guards: a step limit and a call-depth limit, so an infinite loop or a ru
 
 ## Where this is going
 
-`use`, the 60Hz clock, `draw`, `input`, entities, tasks, and `audio` are in the language. `draw` records shapes. The page paints them on the animation frame, after the update. A task waits on the game clock, not the wall clock. `audio` records cues. The page plays them, and rewind stays silent. A running game can restore an earlier frame. Five games in the gallery are written in Spool. The Bench tab times the tree-walker against the VM, in a worker, and the status bar shows the last frame's update time and how many entities are alive. The Bytecode tab shows the program before and after constant folding. **Export** downloads the open program as one HTML file that plays with the same VM. Deploying the static build, and a recorded GIF of rewind, are still ahead.
+`use`, the 60Hz clock, `draw`, `input`, entities, tasks, `audio`, and `rewind` are in the language. `draw` records shapes. The page paints them on the animation frame, after the update. A task waits on the game clock, not the wall clock. `audio` records cues. The page plays them, and rewind stays silent. A running game can restore an earlier frame. Five games in the gallery are written in Spool. The studio is two cards under a slim header: the editor, the preview, and a drawer for projects. Pipkin, a small glowing cat, sits in the header and on the preview. The page drives it. The language does not draw it. The Bench tab times the tree-walker against the VM, in a worker, and the status bar shows the last frame's update time and how many entities are alive. The Bytecode tab shows the program before and after constant folding. **Export** downloads the open program as one HTML file that plays with the same VM. The studio is published at [yaubernice.github.io/spool](https://yaubernice.github.io/spool/).
 
 ### Gallery
 
@@ -290,13 +304,13 @@ Click a game name to load it and see the source. The stage takes the keys. **R**
 
 Open the Bench tab and press **Run benchmarks**. A worker times `fib(27)`, a nested loop of `1 + 2`, and 1,000 entities updated for 20 ticks. Each cell is the median of several runs. The speedup is the tree-walk time divided by the VM time. The same pane says how many instructions constant folding removes from `1 + 2 * 3`. While a game is playing, the status bar shows `frame 1.2 ms` for the last update and `3 entities` for how many are alive.
 
-These medians were measured on this machine on 21 November 2026, with the same warmup and the same sample counts the Bench tab uses. Five samples for `fib(27)` and the nested loop, three for the entities. Each sample starts from the source, so the VM columns include compiling, and the optimized column includes both passes. `fib(27)` is about 9× faster on the VM. The nested loop is not: looking names up in a linked scope costs as much as the arithmetic, and folding `1 + 2` does not pay for itself. Updating 1,000 entities does. The tree-walker pauses on every statement, and that shows up as about 50×.
+These medians were measured on this machine on 21 November 2026, after locals became slots, with the same warmup and the same sample counts the Bench tab uses. Five samples for `fib(27)` and the nested loop, three for the entities. Each sample starts from the source, so the VM columns include compiling, and the optimized column includes both passes. `fib(27)` is about 7× faster on the VM. The nested loop is not: each pass still allocates a scope so a closure can keep that pass's counter, and that costs as much as the arithmetic. Updating 1,000 entities does. The tree-walker pauses on every statement, and that shows up as about 50×.
 
 | Program | Tree-walk | VM | VM + passes | VM speedup | Optimized speedup |
 | --- | --- | --- | --- | --- | --- |
-| fib(27) | 6074.3 ms | 657.6 ms | 695.4 ms | 9.2× | 8.7× |
-| nested loop | 84.3 ms | 89.2 ms | 116.2 ms | 0.9× | 0.7× |
-| 1000 entities | 19451.6 ms | 383.7 ms | 384.1 ms | 50.7× | 50.6× |
+| fib(27) | 5341.4 ms | 767.9 ms | 769.4 ms | 7.0× | 6.9× |
+| nested loop | 87.0 ms | 99.6 ms | 99.1 ms | 0.9× | 0.9× |
+| 1000 entities | 21233.8 ms | 404.6 ms | 390.6 ms | 52.5× | 54.4× |
 
 ### draw and input
 
@@ -320,7 +334,7 @@ spawn Paddle at (10px, 0px) { w: 20px, h: 4px }
 when ball in Ball touches paddle in Paddle { despawn ball }
 ```
 
-`x` and `y` are the center, set by `at`. A field named `r` is a circle. `w` and `h` are a rectangle. `each ball in Ball where ball.x > 100px { }` walks the ones that match. `when` runs after the program and again after every tick, once for each pair that is touching. The same type is paired once. `despawn` removes an entity. The Entities tab lists what is alive.
+`x` and `y` are the center, set by `at`. A field named `pos` is that center as a vec, also set by `at`, and collisions use it when it is there. A field named `r` is a circle. `w` and `h` are a rectangle. `each ball in Ball { }` walks every living one. Add `where ball.x > 100px` to keep some. `when` runs after the program and again after every tick, once for each pair that is touching. The same type is paired once. `despawn` removes an entity. The Entities tab lists what is alive.
 
 ### Tasks
 
@@ -355,24 +369,116 @@ on tick(dt) {
 
 ### Rewind
 
-While a game is playing, the timeline is a ring of machine snapshots, one every four frames, 240 at most. Drag it, or hold **R**, and the editor line, **Variables**, **Call stack**, and **Entities** jump to that frame. Let go and the game continues from the restored machine, random numbers included. The same keys from that point play the same way. Audio stays quiet during the rewind. When the buffer fills, the note under the timeline says earlier frames were dropped. A drawing that is not a game still uses the statement trace, which only redraws.
+While a game is playing, the timeline is a ring of machine snapshots, one every four frames, 240 at most. Drag it, or hold **R**, and the editor line, **Variables**, **Call stack**, and **Entities** jump to that frame. Let go and the game continues from the restored machine, random numbers included. The same keys from that point play the same way. Audio stays quiet during the rewind. When the buffer fills, a toast says so once. The clock under the timeline is `minutes:seconds` at 60 frames per second, then the frame number.
+
+A program can rewind itself:
+
+```
+on key "space" { if energy > 40 { rewind 2s } }
+```
+
+`rewind` restores the machine to that many seconds earlier: entities, variables, the seeded random stream, and tasks that are waiting. The statement ends the frame. Anything the handler would have done after it does not run, so a cost has to be visible in the restored state. The undo demo refills `energy` every tick and only rewinds when the bar is past 40. Two seconds earlier the bar was lower, and that is the cost. Sound is muted for that rewind. The preview tints the field and draws a ghost of recent positions for a moment.
+
+## Line counts
+
+Pong, written so a person can still read it.
+
+| | Lines |
+| --- | --- |
+| Spool `pong.spool` | 35 |
+| Plain JavaScript canvas | 53 |
+
+The JavaScript below is the same paddle, ball, and score. It does not play the hit and score sounds that the Spool game plays in those 35 lines.
+
+```javascript
+const canvas = document.querySelector('canvas')
+const pen = canvas.getContext('2d')
+const held = {}
+addEventListener('keydown', (event) => { held[event.key] = true })
+addEventListener('keyup', (event) => { held[event.key] = false })
+let you = 0
+let cpu = 0
+let paddle = 120
+let rival = 120
+let x = 180
+let y = 120
+let vx = 160
+let vy = 70
+function clamp(value, low, high) {
+  return Math.max(low, Math.min(high, value))
+}
+function frame() {
+  if (held.w) paddle -= 200 / 60
+  if (held.s) paddle += 200 / 60
+  paddle = clamp(paddle, 24, 216)
+  if (y > rival) rival += 140 / 60
+  if (y < rival) rival -= 140 / 60
+  rival = clamp(rival, 24, 216)
+  x += vx / 60
+  y += vy / 60
+  if (y < 5 || y > 235) vy = -vy
+  if (x < 0 || x > 360) {
+    if (x > 360) you += 1
+    else cpu += 1
+    x = 180
+    vx = -vx
+  }
+  if (x < 26 && Math.abs(y - paddle) < 29 && vx < 0) {
+    vx = Math.abs(vx)
+    x = 26
+  }
+  if (x > 334 && Math.abs(y - rival) < 29 && vx > 0) {
+    vx = -Math.abs(vx)
+    x = 334
+  }
+  pen.fillStyle = '#102033'
+  pen.fillRect(0, 0, 360, 240)
+  pen.fillStyle = '#f4efe6'
+  pen.fillRect(11, paddle - 24, 10, 48)
+  pen.fillRect(339, rival - 24, 10, 48)
+  pen.beginPath()
+  pen.arc(x, y, 5, 0, Math.PI * 2)
+  pen.fill()
+  pen.fillText(String(you), 130, 24)
+  pen.fillText(String(cpu), 210, 24)
+  requestAnimationFrame(frame)
+}
+requestAnimationFrame(frame)
+```
+
+Snake is 45 lines. Breakout is 41. `undo.spool`, the dodge-and-rewind demo, is 65.
 
 ## Playground
 
-`npm run dev` opens the studio.
+`npm run dev` opens the studio. A slim header sits over two floating cards, the editor and the preview, with a short drawer along the bottom. Projects slide in from the left. Below 900px the preview stacks on top and that drawer fills the screen. Drag the splitter between the cards; the sizes are remembered.
 
-- **Run**, or Cmd/Ctrl-Enter, draws the program on the VM. The turtle walks each line. Drag **Speed** while it is drawing; the right end of the slider finishes the picture at once.
-- **Export** downloads the open program as `spool-game.html`. That file contains the program and the VM. Open it in a browser and the game plays. The first export in a session builds the player, so it takes a moment. Add `?seed=2` to the file's address to change `random`.
-- **Step** pauses before the next statement. The first step highlights the line that is about to run, and the matching bytecode instruction. **Continue** runs until **Pause** or the end, without freezing the page. **Stop** leaves the debugger.
-- **Back** and **Forward**, or Alt+Left and Alt+Right, move along the recorded trace. The canvas, the highlighted line, **Variables**, and **Call stack** follow the slider. During a game, the same slider and **R** restore the machine.
-- While paused, **Variables** shows the scope chain and **Call stack** shows the functions that are running.
-- The inspector beside the canvas has **Output**, **Tokens**, **AST**, **Bytecode**, and **Bench**. Tokens refresh as you type. Hover a tree node to mark its source; move the cursor and the matching node lights up. A parse error keeps the last good tokens and tree and shows a banner.
-- **Bytecode** lists the program before and after the optimizer. **Constant folding** and **Dead-code elimination** can each be switched off. The counts above the listing are the instruction totals, including nested functions.
-- **Print** and errors share the console under the editor. Every error has a code (`E0203`), the source line, a caret, and a suggestion when a name is one or two edits from a variable you defined.
-- The status bar shows the cursor, token count, AST node count, run time, the last frame's update time, how many entities are alive, the step count, and the deepest call.
-- **Light** / **Dark** switches the theme. The paper under the turtle stays light in both, so the default pen stays visible. Drag the splitters to resize the editor and the inspector. Below 800px the canvas and the inspector sit above the editor.
-- **Pong**, **Snake**, **Breakout**, **Asteroids**, and **Flappy** are games. Click the name to load the source, then play on the stage. **Spiral**, **Snowflake**, **Tree**, **Flower**, **Koch**, **Sierpinski**, and **Rainbow** draw. **Primes**, **Sort**, **Fibonacci**, and **FizzBuzz** print, and they use arrays, `for`, string joining, or functions as values.
-- **Seed** feeds `random`. The program and the seed are stored in the URL hash, so the address is a shareable link.
+![Studio, dark](docs/studio.png)
+
+![Studio, light](docs/studio-light.png)
+
+- Projects lists the examples as gallery cards (Games, Graphics, Algorithms), with a list view if you prefer a tree. Edits to an example stay on that file. Opening a shared link does not create a file. **New file** adds `untitled-1.spool`, then `untitled-2.spool`. **Reset** puts a library file back.
+- Click the preview and it takes the keyboard. Until then a "Click to play" overlay is up, so typing in the editor does not move a paddle. The hint under the canvas comes from the file's first comment.
+- **Run** (Cmd/Ctrl+Enter) starts the program. With auto run on, a clean edit reloads after a short pause and keeps entities when their fields did not change. A program that does not compile keeps the last good run and lists the error under Problems.
+- Alt-click or Cmd-click a number in the editor to slide its value into the running program.
+- **Pause** freezes the clock. While paused, click an entity to select it and drag it; its fields update in the Entities tab. **Step** advances one frame.
+- The scrubber under the preview is the rewind bar. **R**, while the preview is focused, plays backward. Alt+Left and Alt+Right step it.
+- The bottom drawer holds Problems, Output, Tokens, AST, Bytecode, Entities, Variables, Call stack, and Bench. A `›` prompt at the bottom evaluates Spool against the running game (`Ball.count`, `spawn Ball at (100px, 50px)`). Those lines are replayed if the game rewinds. Cmd/Ctrl+J hides the drawer.
+- **Export** downloads the open program as `spool-game.html`. Sound is muted until the speaker button is on. **Seed** is in Settings. The program and the seed stay in the URL hash.
+- Pipkin is the glowing cat in the header and on the preview. The color follows the moment: gold at rest, and a different glow for a win, an error, rewind, or typing. Settings can hide it, the speech bubbles, or make it larger. The poses are on [the expression sheet](docs/mascot-sheet.html).
+- The paper under the turtle stays light in both themes, so the default pen stays visible.
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| Cmd/Ctrl+K | Command palette |
+| Cmd/Ctrl+Enter | Run |
+| Cmd/Ctrl+S | Save the file in the browser |
+| Cmd/Ctrl+B | Open or close projects |
+| Cmd/Ctrl+J | Open or close the bottom drawer |
+| Cmd/Ctrl+. | Focus mode |
+| Alt+Left / Alt+Right | Step the rewind bar |
+| R | Rewind, while the preview is focused |
 
 ## What I'd do next
 
@@ -380,18 +486,18 @@ While a game is playing, the timeline is a ring of machine snapshots, one every 
 - Indexing a string, and a few more array operations (`pop`, a slice) without turning the language into a standard library.
 - Resume one debugger step from the statement trace. Game rewind already restores the machine.
 - Step one bytecode instruction, not only one statement.
-- Give the compiler slots instead of looking names up in a linked scope, which is what the nested-loop number is asking for.
 - A tree-walker path that does not pause, for people who want the readable engine to be the fast one too.
 - Modules, so a drawing can `import` a `square` from another buffer.
-- Deploy the static build, and record the demo GIF below.
 
 ## Demo
 
-A GIF of rewind belongs here once it is recorded. It is not in the repo yet. The recording should show a game running, then **R** or the timeline restoring an earlier frame and play continuing from that machine.
+Pong, then **R** restoring an earlier frame, then play continuing from that machine. A recording of `undo.spool` rewinding can replace `docs/rewind.gif`.
+
+![Rewind](docs/rewind.gif)
 
 ## Build phases
 
-Phases 1–13 are done. The language growth, the VM, the optimizer, the timeline, and the benchmarks are in the tree as well.
+Phases 1–13 are done. The language growth, the VM, the optimizer, the timeline, the benchmarks, the card studio, and Pipkin are in the tree as well.
 
 1. Project setup
 2. Lexer
@@ -408,20 +514,31 @@ Phases 1–13 are done. The language growth, the VM, the optimizer, the timeline
 13. Playground: example gallery, error underlines, shareable URL
 14. Polish: demo GIF and deployment
 
-Deployment and the demo GIF are still open.
-
 ## Getting started
 
 ```bash
 npm install
 npm test        # unit tests (Vitest). Both backends.
 npm run dev     # playground at http://127.0.0.1:5173/
-npm run build   # production static build
+npm run build   # production static build, base /
 ```
+
+`npm run build` writes `dist/`. The base is `/` unless `GITHUB_PAGES=1` is set, which uses `/spool/` for this repository's Pages site.
+
+GitHub Pages, from a clean `main`:
+
+```bash
+GITHUB_PAGES=1 npm run build
+npx gh-pages -d dist
+```
+
+Or push `dist/` to the `gh-pages` branch. The live site is [yaubernice.github.io/spool](https://yaubernice.github.io/spool/).
+
+Vercel: import the repository, leave the build command as `npm run build`, and set the output directory to `dist`. Do not set `GITHUB_PAGES`, so the base stays `/`.
 
 ## Stack
 
-- TypeScript + Vite (static site — GitHub Pages or Vercel still to come)
+- TypeScript + Vite. The static build is on [GitHub Pages](https://yaubernice.github.io/spool/).
 - Vitest for tests
 - CodeMirror 6 for the editor, with a dark and a light theme
 - Hand-written lexer, parser, tree-walker, compiler, and stack VM — no parsing libraries

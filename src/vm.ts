@@ -1,6 +1,6 @@
 import type { Host } from './host.ts'
 import type { Chunk, Ins } from './bytecode.ts'
-import { Op } from './bytecode.ts'
+import { Op, SLOT_SPAN } from './bytecode.ts'
 import { compile } from './compile.ts'
 import { isArray } from './collections.ts'
 import { presentError, RuntimeError, SourceError } from './errors.ts'
@@ -28,6 +28,8 @@ import {
   isEntity,
   isEntityType,
   isMap,
+  isQuantity,
+  isVec,
   type EntityTypeValue,
   type RecordTypeValue,
   makeRecord,
@@ -38,6 +40,7 @@ import {
   sameData,
   setField,
   type MapValue,
+  type VecValue,
 } from './data.ts'
 import { matchPattern } from './match.ts'
 import { mathBuiltins } from './math.ts'
@@ -45,10 +48,15 @@ import { textValue } from './interpreter.ts'
 import { vecBuiltins } from './vec.ts'
 import { optimize } from './optimize.ts'
 import { parse } from './parser.ts'
-import { TICK_DT, ticksFor, type KeyEvent } from './clock.ts'
+import { TICK_DT, ticksFor, type FrameTape, type KeyEvent } from './clock.ts'
 import { decodeMachine, encodeMachine, type VmImage } from './image.ts'
 import { touchingPairs, World } from './world.ts'
 import { mulberry32, type SeededRandom } from './rng.ts'
+
+function retarget(current: unknown, next: number): Value {
+  if (isQuantity(current)) return { type: 'quantity', value: next, unit: { ...current.unit } }
+  return next
+}
 
 /**
  * Stack VM.
@@ -75,6 +83,21 @@ export interface VmSession {
   frame: (events: KeyEvent[]) => void
   read: (name: string) => Value
   glance: () => DebugPause
+  /** Live entities, so a reload can put them back when the shape is unchanged. */
+  captureEntities: () => EntityShot[]
+  adoptEntities: (saved: EntityShot[]) => void
+  /** Move an entity's center. The page uses this while the preview is paused. */
+  placeEntity: (id: number, x: number, y: number) => void
+  /** True once after `rewind`, then false until the next one. */
+  consumeRewind: () => boolean
+  /** Run a snippet in the live game. Recorded so a later rewind replays it. */
+  eval: (source: string) => Value
+}
+
+export interface EntityShot {
+  id: number
+  name: string
+  fields: Record<string, Value>
 }
 
 export function interpretVm(source: string, options: InterpretOptions = {}): Value {
@@ -117,7 +140,12 @@ export function openVm(source: string, options: InterpretOptions = {}): VmSessio
     handlerCount: () => machine.handlerCount(),
     frame: (events) => machine.frame(events),
     read: (name) => machine.read(name),
+    consumeRewind: () => machine.consumeRewind(),
     glance: () => machine.glance(),
+    captureEntities: () => machine.captureEntities(),
+    adoptEntities: (saved) => machine.adoptEntities(saved),
+    placeEntity: (id, x, y) => machine.placeEntity(id, x, y),
+    eval: (source) => machine.evalSnippet(source),
   }
 }
 
@@ -135,6 +163,8 @@ export function loadGame(source: string, options: InterpretOptions = {}): Game {
     hasHandlers: () => session.handlerCount() > 0,
     get: (name) => session.read(name),
     frame: (events) => session.frame(events),
+    eval: (source) => session.eval(source),
+    rewound: () => session.consumeRewind(),
   }
 }
 
@@ -212,6 +242,13 @@ class VM {
   private halted = false
   private cursorLine = 0
   private cursorColumn = 0
+  private origin: VmImage | null = null
+  private log: FrameTape[] = []
+  private pending: string[] = []
+  private carry: string[] | null = null
+  private replaying = false
+  private requested: number | null = null
+  private justRewound = false
 
   constructor(chunk: Chunk, options: InterpretOptions) {
     this.root = chunk
@@ -316,6 +353,40 @@ class VM {
         return
       case Op.DEFINE:
         this.env.define(chunk.names[ins.arg], this.pop(ins), ins)
+        return
+      case Op.LOCAL_GET: {
+        const depth = Math.floor(ins.arg / SLOT_SPAN)
+        const slot = ins.arg % SLOT_SPAN
+        this.stack.push(this.localEnv(depth, ins).readLocal(slot, chunk.names[ins.extra ?? 0] ?? '', ins))
+        return
+      }
+      case Op.LOCAL_SET: {
+        const depth = Math.floor(ins.arg / SLOT_SPAN)
+        const slot = ins.arg % SLOT_SPAN
+        this.localEnv(depth, ins).writeLocal(slot, chunk.names[ins.extra ?? 0] ?? '', this.pop(ins), ins)
+        return
+      }
+      case Op.LOCAL_DEF:
+        this.env.define(chunk.names[ins.extra ?? 0] ?? '', this.pop(ins), ins, ins.arg)
+        return
+      case Op.DUP: {
+        const top = this.stack[this.stack.length - 1]
+        if (top === undefined) throw new Error(`Bytecode stack underflow at ${ins.line}:${ins.column}`)
+        this.stack.push(top)
+        return
+      }
+      case Op.DUP2: {
+        const right = this.stack[this.stack.length - 1]
+        const left = this.stack[this.stack.length - 2]
+        if (right === undefined || left === undefined) {
+          throw new Error(`Bytecode stack underflow at ${ins.line}:${ins.column}`)
+        }
+        this.stack.push(left, right)
+        return
+      }
+      case Op.REWIND:
+        this.requested = ticksFor(this.pop(ins), ins, 'rewind')
+        this.frames.length = 0
         return
       case Op.ADD:
         this.arith(ins, '+')
@@ -454,7 +525,12 @@ class VM {
       }
       case Op.GET_FIELD: {
         const target = this.pop(ins)
-        const field = getField(target, chunk.names[ins.arg] ?? '')
+        const fieldName = chunk.names[ins.arg] ?? ''
+        if (isEntityType(target) && fieldName === 'count') {
+          this.stack.push(this.world.ofType(target.name).length)
+          return
+        }
+        const field = getField(target, fieldName)
         if (field.status === 'fail') throw new RuntimeError(field.code, field.detail, ins.line, ins.column)
         this.stack.push(field.value as Value)
         return
@@ -646,7 +722,7 @@ class VM {
       )
     }
     const env = new Environment(callee.closure, callee.name)
-    for (let i = 0; i < params.length; i++) env.define(params[i], args[i], ins)
+    for (let i = 0; i < params.length; i++) env.define(params[i], args[i], ins, i)
     this.callDepth++
     this.peakDepth = Math.max(this.peakDepth, this.callDepth)
     this.calls.push({ name: callee.name, line: ins.line, column: ins.column })
@@ -852,6 +928,49 @@ class VM {
     return this.capture(this.cursorLine, this.cursorColumn, -1, '')
   }
 
+  captureEntities(): EntityShot[] {
+    return this.world.entities
+      .filter((entity) => entity.alive)
+      .map((entity) => ({
+        id: entity.id,
+        name: entity.name,
+        fields: Object.fromEntries(
+          Object.entries(entity.fields).map(([key, value]) => [
+            key,
+            isQuantity(value) ? { type: 'quantity' as const, value: value.value, unit: { ...value.unit } } : (value as Value),
+          ]),
+        ),
+      }))
+  }
+
+  adoptEntities(saved: EntityShot[]): void {
+    for (const shot of saved) {
+      const entity = this.world.entities.find((item) => item.id === shot.id && item.name === shot.name && item.alive)
+      if (!entity) continue
+      for (const [key, value] of Object.entries(shot.fields)) {
+        if (Object.prototype.hasOwnProperty.call(entity.fields, key)) entity.fields[key] = value
+      }
+    }
+  }
+
+  placeEntity(id: number, x: number, y: number): void {
+    const entity = this.world.entities.find((item) => item.id === id && item.alive)
+    if (!entity) return
+    entity.fields.x = retarget(entity.fields.x, x)
+    entity.fields.y = retarget(entity.fields.y, y)
+    const pos = entity.fields.pos
+    if (isVec(pos)) {
+      pos.x = retarget(pos.x, x) as VecValue['x']
+      pos.y = retarget(pos.y, y) as VecValue['y']
+    }
+  }
+
+  consumeRewind(): boolean {
+    const flag = this.justRewound
+    this.justRewound = false
+    return flag
+  }
+
   private note(ins: Ins): void {
     if (ins.line > 0) {
       this.cursorLine = ins.line
@@ -860,27 +979,64 @@ class VM {
   }
 
   frame(events: KeyEvent[]): void {
+    const repl = this.replaying ? (this.carry ?? []) : this.pending.splice(0)
+    this.carry = null
+    if (!this.origin) this.origin = this.image()
+    if (!this.replaying) this.log.push({ events, repl })
+    if (this.replaying) {
+      for (const snippet of repl) this.evalSnippet(snippet)
+    }
     this.steps = 0
     if (!this.started) {
       this.started = true
       this.dispatch('start', null, null)
     }
+    if (this.requested !== null) return this.finishRewind()
     this.launchIdle()
+    if (this.requested !== null) return this.finishRewind()
     this.ticks += 1
     this.resumeDue('time')
+    if (this.requested !== null) return this.finishRewind()
     this.dispatch('tick', quantity(TICK_DT.value, TICK_DT.unit), null)
+    if (this.requested !== null) return this.finishRewind()
     this.resumeDue('until')
-    for (const event of events) this.dispatch(event.type, null, event.key)
+    if (this.requested !== null) return this.finishRewind()
+    for (const event of events) {
+      this.dispatch(event.type, null, event.key)
+      if (this.requested !== null) return this.finishRewind()
+    }
     this.resolveTouches()
+    if (this.requested !== null) this.finishRewind()
+  }
+
+  private finishRewind(): void {
+    const back = this.requested
+    this.requested = null
+    if (back === null || this.replaying || !this.origin) return
+    const keep = Math.max(0, this.log.length - 1 - back)
+    const replay = this.log.slice(0, keep)
+    this.restore(this.origin)
+    this.pending = []
+    this.log = []
+    this.replaying = true
+    for (const batch of replay) {
+      this.carry = batch.repl
+      this.frame(batch.events)
+    }
+    this.replaying = false
+    this.log = replay
+    this.justRewound = true
   }
 
   private launchIdle(): void {
     for (const task of this.tasks) {
+      if (this.requested !== null) return
       if (task.started) continue
       task.started = true
       this.stack.push(task.fn)
       this.call({ op: Op.CALL, arg: 0, line: task.at.line, column: task.at.column }, true)
       this.drive()
+      if (this.requested !== null) return
       if (!this.halted) this.stack.pop()
     }
   }
@@ -895,12 +1051,14 @@ class VM {
     this.sleeping.length = 0
     this.sleeping.push(...later)
     for (const task of due) {
+      if (this.requested !== null) return
       this.frames.push(task.frame)
       this.env = task.env
       this.calls.push(task.call)
       this.callDepth++
       this.peakDepth = Math.max(this.peakDepth, this.callDepth)
       this.drive()
+      if (this.requested !== null) return
       if (!this.halted) this.stack.pop()
     }
   }
@@ -923,13 +1081,16 @@ class VM {
 
   private resolveTouches(): void {
     for (const rule of this.rules) {
+      if (this.requested !== null) return
       for (const [left, right] of touchingPairs(this.world, rule.left, rule.right, rule.at)) {
+        if (this.requested !== null) return
         if (!left.alive || !right.alive) continue
         this.stack.push(rule.fn)
         this.stack.push(left)
         this.stack.push(right)
         this.call({ op: Op.CALL, arg: 2, line: rule.at.line, column: rule.at.column })
         this.drive()
+        if (this.requested !== null) return
         this.stack.pop()
       }
     }
@@ -937,6 +1098,7 @@ class VM {
 
   private dispatch(event: VmHandler['event'], arg: Value | null, key: string | null): void {
     for (const handler of this.handlers) {
+      if (this.requested !== null) return
       if (handler.event !== event) continue
       if (handler.key !== null && handler.key !== key) continue
       const count = arg === null ? 0 : 1
@@ -944,6 +1106,7 @@ class VM {
       if (arg !== null) this.stack.push(arg)
       this.call({ op: Op.CALL, arg: count, line: handler.at.line, column: handler.at.column })
       this.drive()
+      if (this.requested !== null) return
       this.stack.pop()
     }
   }
@@ -1058,6 +1221,50 @@ class VM {
     this.cursorLine = decoded.line
     this.cursorColumn = decoded.column
     this.restored = true
+    this.pending = []
+  }
+
+  /** Run statements against the live game and remember them for rewind. */
+  evalSnippet(source: string): Value {
+    let program
+    try {
+      program = parse(source)
+    } catch (error) {
+      if (error instanceof SourceError) throw presentError(error, source)
+      throw error
+    }
+    const chunk = compile(program)
+    const depth = this.frames.length
+    const stacked = this.stack.length
+    const steps = this.steps
+    this.steps = 0
+    this.frames.push({ chunk, ip: 0, parentEnv: this.globals, call: false })
+    this.env = this.globals
+    try {
+      this.drive()
+    } catch (error) {
+      this.frames.length = depth
+      this.stack.length = stacked
+      this.steps = steps
+      if (error instanceof SourceError) throw presentError(error, source)
+      throw error
+    }
+    this.steps = steps
+    if (this.requested !== null) {
+      if (!this.replaying) this.finishRewind()
+      return this.result
+    }
+    if (!this.replaying) this.pending.push(source)
+    const showed = program.body.some((statement) => statement.type === 'ExprStmt')
+    return showed ? this.result : null
+  }
+
+  /** Walk `depth` parents. Depth 0 is the environment the instruction is running in. */
+  private localEnv(depth: number, at: Ins): Environment {
+    let env: Environment | null = this.env
+    for (let i = 0; i < depth && env; i++) env = env.parent
+    if (!env) throw new RuntimeError('E0202', 'Undefined variable', at.line, at.column)
+    return env
   }
 
   private pop(ins?: Ins): Value {

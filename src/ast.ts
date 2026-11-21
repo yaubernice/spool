@@ -201,10 +201,14 @@ export interface LetStmt extends SourceLocation {
  * `n = n + 1`. Changes a name that already exists, including one in an outer scope.
  * It does not create a name. Use `let` for that.
  */
+/** `+=`, `-=`, or `*=`. Plain `=` stores `op` as null. */
+export type UpdateOp = '+' | '-' | '*'
+
 export interface AssignStmt extends SourceLocation {
   type: 'AssignStmt'
   name: string
   value: Expr
+  op: UpdateOp | null
 }
 
 /**
@@ -267,6 +271,7 @@ export interface IndexAssignStmt extends SourceLocation {
   object: Expr
   index: Expr
   value: Expr
+  op: UpdateOp | null
 }
 
 /**
@@ -316,12 +321,13 @@ export interface DespawnStmt extends SourceLocation {
   entity: Expr
 }
 
-/** `each ball in Ball where ball.x > 0 { }`. */
+/** `each ball in Ball { }` or `each ball in Ball where ball.x > 0 { }`. */
 export interface EachStmt extends SourceLocation {
   type: 'EachStmt'
   name: string
   typeName: string
-  where: Expr
+  /** Null means every living entity of that type. */
+  where: Expr | null
   body: BlockStmt
 }
 
@@ -395,8 +401,15 @@ export interface FieldAssignStmt extends SourceLocation {
   object: Expr
   name: string
   value: Expr
+  op: UpdateOp | null
   nameLine: number
   nameColumn: number
+}
+
+/** `rewind 2s`. Restores the game to the state from that long ago. */
+export interface RewindStmt extends SourceLocation {
+  type: 'RewindStmt'
+  time: Expr
 }
 
 export type Stmt =
@@ -421,6 +434,7 @@ export type Stmt =
   | WaitStmt
   | EveryStmt
   | AfterStmt
+  | RewindStmt
   | ReturnStmt
   | FnStmt
 
