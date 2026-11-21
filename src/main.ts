@@ -8,7 +8,8 @@ import { optimize } from './optimize.ts'
 import { parse } from './parser.ts'
 import type { BenchRow } from './playground/bench.worker.ts'
 import { Speaker } from './audio.ts'
-import { Display } from './draw.ts'
+import { Display, type DrawOp } from './draw.ts'
+import type { VmImage } from './image.ts'
 import { InputState } from './input.ts'
 import { createSoundPlayer } from './playground/sound.ts'
 import { paintDisplay, playDrawing, type Playback } from './playground/canvas.ts'
@@ -34,6 +35,10 @@ import { Turtle } from './turtle.ts'
 import { openVm } from './vm.ts'
 
 const TRACE_CAP = 10_000
+/** A rewind snapshot covers this many game frames. */
+const SNAP_EVERY = 4
+/** How many snapshots the timeline keeps. Older play is dropped. */
+const SNAP_CAP = 240
 
 const app = document.querySelector<HTMLDivElement>('#app')
 if (!app) throw new Error('Missing #app')
@@ -209,6 +214,26 @@ const liveInput = new InputState()
 const sounds = createSoundPlayer()
 let display = new Display()
 let speaker = new Speaker()
+let live: ReturnType<typeof openVm> | null = null
+let shots: RewindShot[] = []
+let shotIndex = 0
+let rewinding = false
+let scrubbing = false
+let resumePlay = false
+let rewindFull = false
+
+interface RewindShot {
+  image: VmImage
+  inputLength: number
+  held: string[]
+  x: number
+  y: number
+  background: string
+  cameraX: number
+  cameraY: number
+  ops: DrawOp[]
+  view: DebugPause
+}
 
 interface TraceFrame {
   line: number
@@ -233,7 +258,20 @@ continueButton.addEventListener('click', () => void continueRun())
 stopButton.addEventListener('click', () => halt('Stopped'))
 backButton.addEventListener('click', stepBack)
 forwardButton.addEventListener('click', stepForward)
-timeline.addEventListener('input', () => showTrace(Number(timeline.value)))
+timeline.addEventListener('input', () => {
+  if (shots.length > 0) showRewind(Number(timeline.value))
+  else showTrace(Number(timeline.value))
+})
+timeline.addEventListener('pointerdown', () => {
+  if (shots.length === 0) return
+  scrubbing = true
+  sounds.silence()
+})
+window.addEventListener('pointerup', () => {
+  if (!scrubbing) return
+  scrubbing = false
+  resumePlay = true
+})
 seedInput.addEventListener('change', () => {
   const next = Number(seedInput.value)
   seed = Number.isFinite(next) ? Math.trunc(next) : 1
@@ -354,6 +392,7 @@ function run(): void {
     if (display.used) paintDisplay(canvas, display)
     sounds.unlock()
     sounds.play(speaker.cues)
+    live = opened
     if (opened.handlerCount() > 0) startClock(opened, turtle)
   } catch (error) {
     strokes = turtle.strokes
@@ -403,6 +442,24 @@ function startClock(opened: ReturnType<typeof openVm>, turtle: Turtle): void {
   let acc = 0
   const stepMs = 1000 / 60
   const loop = (now: number) => {
+    if (rewinding || scrubbing) {
+      if (rewinding && shotIndex > 0) showRewind(shotIndex - 1)
+      last = now
+      acc = 0
+      clock = requestAnimationFrame(loop)
+      return
+    }
+    if (shots.length > 0 && shotIndex < shots.length - 1 && !resumePlay) {
+      last = now
+      acc = 0
+      clock = requestAnimationFrame(loop)
+      return
+    }
+    if (resumePlay && shotIndex < shots.length - 1) {
+      shots.length = shotIndex + 1
+      timeline.max = String(Math.max(0, shots.length - 1))
+    }
+    resumePlay = false
     acc += Math.min(now - last, 100)
     last = now
     let guard = 0
@@ -416,6 +473,7 @@ function startClock(opened: ReturnType<typeof openVm>, turtle: Turtle): void {
         opened.frame(events)
         liveInput.endFrame()
         sounds.play(heard.cues)
+        if (inputLog.length % SNAP_EVERY === 0) takeShot()
         guard++
       }
     } catch (error) {
@@ -438,7 +496,61 @@ function startClock(opened: ReturnType<typeof openVm>, turtle: Turtle): void {
     clock = requestAnimationFrame(loop)
   }
   inputLog.length = 0
+  shots = []
+  rewindFull = false
+  takeShot()
   clock = requestAnimationFrame(loop)
+}
+
+function takeShot(): void {
+  if (!live) return
+  const input = liveInput.capture()
+  shots.push({
+    image: live.image(),
+    inputLength: inputLog.length,
+    held: input.held,
+    x: input.x,
+    y: input.y,
+    background: display.background,
+    cameraX: display.cameraX,
+    cameraY: display.cameraY,
+    ops: display.ops.map((op) => ({ ...op })),
+    view: live.glance(),
+  })
+  if (shots.length > SNAP_CAP) {
+    shots.shift()
+    rewindFull = true
+    traceNote.textContent = 'Rewind buffer is full. Earlier frames were dropped.'
+  }
+  shotIndex = shots.length - 1
+  timeline.max = String(Math.max(0, shots.length - 1))
+  if (!scrubbing && !rewinding) timeline.value = String(shotIndex)
+}
+
+function showRewind(index: number): void {
+  if (!live || shots.length === 0) return
+  sounds.silence()
+  playback?.stop()
+  shotIndex = Math.max(0, Math.min(shots.length - 1, index))
+  const shot = shots[shotIndex]
+  if (!shot) return
+  live.restore(shot.image)
+  liveInput.adopt({ held: shot.held, x: shot.x, y: shot.y })
+  inputLog.length = shot.inputLength
+  display.background = shot.background
+  display.cameraX = shot.cameraX
+  display.cameraY = shot.cameraY
+  display.ops.length = 0
+  display.ops.push(...shot.ops.map((op) => ({ ...op })))
+  if (shot.view.line > 0) editor.highlightLine(shot.view.line)
+  else editor.highlightLine(null)
+  renderScopes(panes.variables, shot.view.scopes)
+  renderEntities(panes.entities, shot.view.entities)
+  renderStack(panes.stack, shot.view.stack)
+  timeline.value = String(shotIndex)
+  if (display.used) paintDisplay(canvas, display)
+  runState.textContent = `Rewound · frame ${shot.inputLength}`
+  traceNote.textContent = rewindFull ? 'Rewind buffer is full. Earlier frames were dropped.' : ''
 }
 
 function keyName(event: KeyboardEvent): string {
@@ -450,10 +562,20 @@ function keyName(event: KeyboardEvent): string {
   return event.key.toLowerCase()
 }
 
-window.addEventListener('keydown', (event) => {
-  if (!clock || event.repeat) return
+function typingInEditor(event: Event): boolean {
   const target = event.target
-  if (target instanceof HTMLElement && target.closest('.cm-editor, input, textarea')) return
+  return target instanceof HTMLElement && target.closest('.cm-editor, input, textarea') !== null
+}
+
+window.addEventListener('keydown', (event) => {
+  if ((event.key === 'r' || event.key === 'R') && !event.altKey && !event.ctrlKey && !event.metaKey) {
+    if (typingInEditor(event) || shots.length === 0) return
+    event.preventDefault()
+    if (!event.repeat) rewinding = true
+    return
+  }
+  if (!clock || event.repeat) return
+  if (typingInEditor(event)) return
   event.preventDefault()
   const key = keyName(event)
   liveInput.press(key)
@@ -461,9 +583,16 @@ window.addEventListener('keydown', (event) => {
 })
 
 window.addEventListener('keyup', (event) => {
+  if (event.key === 'r' || event.key === 'R') {
+    if (!typingInEditor(event)) {
+      rewinding = false
+      resumePlay = true
+      event.preventDefault()
+    }
+    return
+  }
   if (!clock) return
-  const target = event.target
-  if (target instanceof HTMLElement && target.closest('.cm-editor, input, textarea')) return
+  if (typingInEditor(event)) return
   event.preventDefault()
   const key = keyName(event)
   liveInput.release(key)
@@ -482,6 +611,13 @@ canvas.addEventListener('mousedown', () => {
 function halt(label: string): void {
   stopContinue = true
   sounds.silence()
+  rewinding = false
+  scrubbing = false
+  resumePlay = false
+  shots = []
+  shotIndex = 0
+  rewindFull = false
+  live = null
   if (clock) cancelAnimationFrame(clock)
   clock = 0
   keyQueue = []
@@ -770,10 +906,16 @@ function showTrace(index: number): void {
 }
 
 function stepBack(): void {
-  showTrace(traceIndex - 1)
+  if (shots.length > 0) showRewind(shotIndex - 1)
+  else showTrace(traceIndex - 1)
 }
 
 function stepForward(): void {
+  if (shots.length > 0) {
+    if (shotIndex < shots.length - 1) showRewind(shotIndex + 1)
+    else resumePlay = true
+    return
+  }
   if (traceIndex < frames.length - 1) {
     showTrace(traceIndex + 1)
     return

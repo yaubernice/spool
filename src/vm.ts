@@ -69,6 +69,8 @@ export interface VmSession {
   chunk: Chunk
   /** Plain data for the paused machine. Safe to `JSON.parse(JSON.stringify(...))`. */
   image: () => VmImage
+  /** Put a saved image back. The next `frame` continues from that moment. */
+  restore: (image: VmImage) => void
   handlerCount: () => number
   frame: (events: KeyEvent[]) => void
   read: (name: string) => Value
@@ -111,6 +113,7 @@ export function openVm(source: string, options: InterpretOptions = {}): VmSessio
     raw,
     chunk,
     image: () => machine.image(),
+    restore: (image) => machine.restore(image),
     handlerCount: () => machine.handlerCount(),
     frame: (events) => machine.frame(events),
     read: (name) => machine.read(name),
@@ -207,6 +210,8 @@ class VM {
   private readonly sleeping: SleepingTask[] = []
   private ticks = 0
   private halted = false
+  private cursorLine = 0
+  private cursorColumn = 0
 
   constructor(chunk: Chunk, options: InterpretOptions) {
     this.root = chunk
@@ -268,6 +273,7 @@ class VM {
       }
       const ins = frame.chunk.code[frame.ip]
       frame.ip++
+      this.note(ins)
       if (ins.op === Op.PAUSE) {
         yield this.capture(ins.line, ins.column, frame.ip - 1, frame.chunk.name)
         this.guardStep(ins)
@@ -287,6 +293,7 @@ class VM {
       }
       const ins = frame.chunk.code[frame.ip]
       frame.ip++
+      this.note(ins)
       if (ins.op === Op.PAUSE) {
         this.guardStep(ins)
         continue
@@ -842,7 +849,14 @@ class VM {
   }
 
   glance(): DebugPause {
-    return this.capture(0, 0, -1, '')
+    return this.capture(this.cursorLine, this.cursorColumn, -1, '')
+  }
+
+  private note(ins: Ins): void {
+    if (ins.line > 0) {
+      this.cursorLine = ins.line
+      this.cursorColumn = ins.column
+    }
   }
 
   frame(events: KeyEvent[]): void {
@@ -948,6 +962,37 @@ class VM {
       frames: this.frames,
       calls: this.calls,
       world: this.world.entities,
+      handlers: this.handlers.map((handler) => ({
+        event: handler.event,
+        key: handler.key,
+        fn: handler.fn,
+        line: handler.at.line,
+        column: handler.at.column,
+      })),
+      rules: this.rules.map((rule) => ({
+        left: rule.left,
+        right: rule.right,
+        fn: rule.fn,
+        line: rule.at.line,
+        column: rule.at.column,
+      })),
+      tasks: this.tasks.map((task) => ({
+        fn: task.fn,
+        started: task.started,
+        line: task.at.line,
+        column: task.at.column,
+      })),
+      sleeping: this.sleeping.map((sleep) => ({
+        frame: sleep.frame,
+        env: sleep.env,
+        call: sleep.call,
+        mode: sleep.mode,
+        wake: sleep.wake,
+      })),
+      ticks: this.ticks,
+      started: this.started,
+      line: this.cursorLine,
+      column: this.cursorColumn,
     })
   }
 
@@ -980,6 +1025,38 @@ class VM {
     this.peakDepth = image.peakDepth
     this.result = decoded.result
     this.world.replace(decoded.entities)
+    this.handlers.length = 0
+    this.handlers.push(
+      ...decoded.handlers.map((handler) => ({
+        event: handler.event,
+        key: handler.key,
+        fn: handler.fn,
+        at: { op: Op.CALL, arg: 0, line: handler.line, column: handler.column },
+      })),
+    )
+    this.rules.length = 0
+    this.rules.push(
+      ...decoded.rules.map((rule) => ({
+        left: rule.left,
+        right: rule.right,
+        fn: rule.fn,
+        at: { op: Op.CALL, arg: 0, line: rule.line, column: rule.column },
+      })),
+    )
+    this.tasks.length = 0
+    this.tasks.push(
+      ...decoded.tasks.map((task) => ({
+        fn: task.fn,
+        started: task.started,
+        at: { op: Op.CALL, arg: 0, line: task.line, column: task.column },
+      })),
+    )
+    this.sleeping.length = 0
+    this.sleeping.push(...decoded.sleeping)
+    this.ticks = decoded.ticks
+    this.started = decoded.started
+    this.cursorLine = decoded.line
+    this.cursorColumn = decoded.column
     this.restored = true
   }
 

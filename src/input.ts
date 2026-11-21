@@ -27,6 +27,18 @@ export class InputState {
     this.click = false
   }
 
+  capture(): { held: string[]; x: number; y: number } {
+    return { held: [...this.held], x: this.x, y: this.y }
+  }
+
+  adopt(shot: { held: string[]; x: number; y: number }): void {
+    this.held.clear()
+    for (const key of shot.held) this.held.add(key)
+    this.x = shot.x
+    this.y = shot.y
+    this.click = false
+  }
+
   module(): Record<string, HostFunction> {
     return {
       key: (args, at) => {

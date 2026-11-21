@@ -1,6 +1,7 @@
 import type { Chunk } from './bytecode.ts'
 import {
   isEntity,
+  isEntityType,
   isMap,
   isModule,
   isQuantity,
@@ -26,10 +27,34 @@ export interface VmImage {
   result: Encoded
   stack: Encoded[]
   env: number
-  frames: { path: number[]; ip: number; parent: number; call: boolean }[]
+  frames: { path: number[]; ip: number; parent: number; call: boolean; task: boolean }[]
   calls: { name: string; line: number; column: number }[]
   envs: EnvImage[]
   ents: Encoded[]
+  /** `on start`, `on tick`, and `on key` handlers. */
+  handlers: { event: 'start' | 'tick' | 'key' | 'key_up'; key: string | null; fn: Encoded; line: number; column: number }[]
+  rules: { left: string; right: string; fn: Encoded; line: number; column: number }[]
+  tasks: { fn: Encoded; started: boolean; line: number; column: number }[]
+  sleeping: SleepImage[]
+  ticks: number
+  /** True after the first game frame has run `on start`. */
+  started: boolean
+  line: number
+  column: number
+}
+
+interface SleepImage {
+  path: number[]
+  ip: number
+  parent: number
+  call: boolean
+  task: boolean
+  env: number
+  name: string
+  line: number
+  column: number
+  mode: 'time' | 'until'
+  wake: number
 }
 
 interface EnvImage {
@@ -56,6 +81,7 @@ type Encoded =
   | { t: 'ref'; id: number }
   | { t: 'ent'; id: number; name: string; alive: boolean; fields: { k: string; v: Encoded }[] }
   | { t: 'eref'; id: number }
+  | { t: 'etype'; name: string; fields: string[] }
 
 export interface MachineView {
   root: Chunk
@@ -67,9 +93,23 @@ export interface MachineView {
   stack: Value[]
   env: Environment
   globals: Environment
-  frames: { chunk: Chunk; ip: number; parentEnv: Environment; call: boolean }[]
+  frames: { chunk: Chunk; ip: number; parentEnv: Environment; call: boolean; task?: boolean }[]
   calls: { name: string; line: number; column: number }[]
   world: EntityValue[]
+  handlers: { event: 'start' | 'tick' | 'key' | 'key_up'; key: string | null; fn: FunctionValue; line: number; column: number }[]
+  rules: { left: string; right: string; fn: FunctionValue; line: number; column: number }[]
+  tasks: { fn: FunctionValue; started: boolean; line: number; column: number }[]
+  sleeping: {
+    frame: { chunk: Chunk; ip: number; parentEnv: Environment; call: boolean; task?: boolean }
+    env: Environment
+    call: { name: string; line: number; column: number }
+    mode: 'time' | 'until'
+    wake: number
+  }[]
+  ticks: number
+  started: boolean
+  line: number
+  column: number
 }
 
 export function encodeMachine(view: MachineView): VmImage {
@@ -85,6 +125,13 @@ export function encodeMachine(view: MachineView): VmImage {
   idOf(view.globals)
   idOf(view.env)
   for (const frame of view.frames) idOf(frame.parentEnv)
+  for (const handler of view.handlers) idOf(handler.fn.closure)
+  for (const rule of view.rules) idOf(rule.fn.closure)
+  for (const task of view.tasks) idOf(task.fn.closure)
+  for (const sleep of view.sleeping) {
+    idOf(sleep.env)
+    idOf(sleep.frame.parentEnv)
+  }
   const visit = (value: Value): void => {
     if (value === null || typeof value !== 'object') return
     if (value.type === 'function') idOf(value.closure)
@@ -131,10 +178,48 @@ export function encodeMachine(view: MachineView): VmImage {
       ip: frame.ip,
       parent: idOf(frame.parentEnv),
       call: frame.call,
+      task: frame.task === true,
     })),
     calls: view.calls.map((frame) => ({ ...frame })),
     envs,
     ents,
+    handlers: view.handlers.map((handler) => ({
+      event: handler.event,
+      key: handler.key,
+      fn: enc(handler.fn),
+      line: handler.line,
+      column: handler.column,
+    })),
+    rules: view.rules.map((rule) => ({
+      left: rule.left,
+      right: rule.right,
+      fn: enc(rule.fn),
+      line: rule.line,
+      column: rule.column,
+    })),
+    tasks: view.tasks.map((task) => ({
+      fn: enc(task.fn),
+      started: task.started,
+      line: task.line,
+      column: task.column,
+    })),
+    sleeping: view.sleeping.map((sleep) => ({
+      path: chunkPath(view.root, sleep.frame.chunk),
+      ip: sleep.frame.ip,
+      parent: idOf(sleep.frame.parentEnv),
+      call: sleep.frame.call,
+      task: sleep.frame.task === true,
+      env: idOf(sleep.env),
+      name: sleep.call.name,
+      line: sleep.call.line,
+      column: sleep.call.column,
+      mode: sleep.mode,
+      wake: sleep.wake,
+    })),
+    ticks: view.ticks,
+    started: view.started,
+    line: view.line,
+    column: view.column,
   }
 }
 
@@ -148,8 +233,22 @@ export function decodeMachine(
   env: Environment
   stack: Value[]
   result: Value
-  frames: { chunk: Chunk; ip: number; parentEnv: Environment; call: boolean }[]
+  frames: { chunk: Chunk; ip: number; parentEnv: Environment; call: boolean; task: boolean }[]
   entities: EntityValue[]
+  handlers: { event: 'start' | 'tick' | 'key' | 'key_up'; key: string | null; fn: FunctionValue; line: number; column: number }[]
+  rules: { left: string; right: string; fn: FunctionValue; line: number; column: number }[]
+  tasks: { fn: FunctionValue; started: boolean; line: number; column: number }[]
+  sleeping: {
+    frame: { chunk: Chunk; ip: number; parentEnv: Environment; call: boolean; task: boolean }
+    env: Environment
+    call: { name: string; line: number; column: number }
+    mode: 'time' | 'until'
+    wake: number
+  }[]
+  ticks: number
+  started: boolean
+  line: number
+  column: number
 } {
   const shells = new Map<number, Environment>()
   for (const env of image.envs) {
@@ -200,7 +299,40 @@ export function decodeMachine(
       ip: frame.ip,
       parentEnv: shells.get(frame.parent) ?? globals,
       call: frame.call,
+      task: frame.task === true,
     })),
+    handlers: image.handlers.flatMap((handler) => {
+      const fn = dec(handler.fn)
+      if (!isFunctionValue(fn)) return []
+      return [{ event: handler.event, key: handler.key, fn, line: handler.line, column: handler.column }]
+    }),
+    rules: image.rules.flatMap((rule) => {
+      const fn = dec(rule.fn)
+      if (!isFunctionValue(fn)) return []
+      return [{ left: rule.left, right: rule.right, fn, line: rule.line, column: rule.column }]
+    }),
+    tasks: image.tasks.flatMap((task) => {
+      const fn = dec(task.fn)
+      if (!isFunctionValue(fn)) return []
+      return [{ fn, started: task.started, line: task.line, column: task.column }]
+    }),
+    sleeping: image.sleeping.map((sleep) => ({
+      frame: {
+        chunk: chunkAt(root, sleep.path),
+        ip: sleep.ip,
+        parentEnv: shells.get(sleep.parent) ?? globals,
+        call: sleep.call,
+        task: sleep.task,
+      },
+      env: shells.get(sleep.env) ?? globals,
+      call: { name: sleep.name, line: sleep.line, column: sleep.column },
+      mode: sleep.mode,
+      wake: sleep.wake,
+    })),
+    ticks: image.ticks,
+    started: image.started,
+    line: image.line,
+    column: image.column,
     entities: image.ents.flatMap((encoded) => {
       if (encoded.t !== 'ent') return []
       const entity = byId.get(encoded.id)
@@ -223,6 +355,17 @@ function encodeValue(
   if (value === null) return { t: 'null' }
   if (isQuantity(value)) return { t: 'qty', v: value.value, px: value.unit.px, s: value.unit.s }
   if (isVec(value)) return { t: 'vec', x: enc(value.x), y: enc(value.y) }
+  if (isEntity(value)) {
+    if (seen.has(value)) return { t: 'eref', id: value.id }
+    seen.set(value, value.id)
+    return {
+      t: 'ent',
+      id: value.id,
+      name: value.name,
+      alive: value.alive,
+      fields: Object.entries(value.fields).map(([key, field]) => ({ k: key, v: enc(field as Value) })),
+    }
+  }
   const shared = seen.get(value)
   if (shared !== undefined) return { t: 'ref', id: shared }
   if (value.type === 'array') {
@@ -246,18 +389,8 @@ function encodeValue(
     }
   }
   if (isRecordType(value)) return { t: 'rtype', name: value.name, fields: [...value.fields] }
+  if (isEntityType(value)) return { t: 'etype', name: value.name, fields: [...value.fields] }
   if (isModule(value)) return { t: 'mod', name: value.name }
-  if (isEntity(value)) {
-    if (seen.has(value)) return { t: 'eref', id: value.id }
-    seen.set(value, value.id)
-    return {
-      t: 'ent',
-      id: value.id,
-      name: value.name,
-      alive: value.alive,
-      fields: Object.entries(value.fields).map(([key, field]) => ({ k: key, v: enc(field as Value) })),
-    }
-  }
   if (value.type === 'builtin') return { t: 'builtin', name: value.name }
   if (value.type === 'function') {
     if (!value.chunk) throw new Error(`Cannot snapshot tree-walker function ${value.name}`)
@@ -315,6 +448,8 @@ function decodeValue(
     }
     case 'rtype':
       return { type: 'recordType', name: encoded.name, fields: encoded.fields }
+    case 'etype':
+      return { type: 'entityType', name: encoded.name, fields: encoded.fields }
     case 'mod':
       return bindModule(modules, encoded.name, { line: 1, column: 1 })
     case 'builtin':
@@ -346,6 +481,10 @@ function decodeValue(
       return fn
     }
   }
+}
+
+function isFunctionValue(value: Value): value is FunctionValue {
+  return typeof value === 'object' && value !== null && value.type === 'function'
 }
 
 function chunkPath(root: Chunk, target: Chunk): number[] {

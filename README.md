@@ -179,13 +179,15 @@ Runtime guards: a step limit and a call-depth limit, so an infinite loop or a ru
 
 **Closures share the scope object.** A function remembers the environment it was created in, not a copy of the values. That is why a named function can call itself: the name is written into that environment before the call. A `for` loop copies the counter into a fresh scope on every pass, so a function created in the body keeps that pass's `i`. Resolving names at run time costs a scope walk, and it means the compiler does not have to number slots. That trade is why a tiny loop does not get faster on the VM. A benchmark table is a later phase.
 
-**The debugger pauses on statements, and time travel is a recording.** Both engines yield before each statement. The page stores up to 10,000 of those pauses, with the variables, the call stack, and how many turtle strokes existed. Dragging the timeline draws the strokes from the start up to that pause. It does not restart the machine at that point. Step forward along the recording until the live end, and only then does another statement run. If the cap is hit, the run continues and the timeline says later steps were not recorded.
+**The debugger pauses on statements, and that trace is a recording.** Both engines yield before each statement. The page stores up to 10,000 of those pauses, with the variables, the call stack, and how many turtle strokes existed. Dragging the timeline draws the strokes from the start up to that pause. It does not restart the machine at that point. Step forward along the recording until the live end, and only then does another statement run. If the cap is hit, the run continues and the timeline says later steps were not recorded.
+
+**A running game can rewind for real.** Every four frames the page stores the VM, the entities, the input log, and the random-number state in a buffer of 240 snapshots. The timeline and the hold-R key restore that snapshot, so play continues from there and the same inputs produce the same game. When the buffer is full, earlier frames are dropped and the timeline says so. Audio stays quiet while you rewind.
 
 **The seed lives in the link.** The hash is `#s=<seed>&<program>`. An older link that is only the program still loads, with seed 1.
 
 ## Where this is going
 
-`use`, the 60Hz clock, `draw`, `input`, entities, tasks, and `audio` are in the language. `draw` records shapes. The page paints them on the animation frame, after the update. A task waits on the game clock, not the wall clock. `audio` records cues. The page plays them, and the timeline stays silent. Still ahead: rewind that restores the machine. The playground can already show bytecode and scrub a recorded trace of a drawing. Those stay. A measured benchmark table and a demo GIF belong to a later phase.
+`use`, the 60Hz clock, `draw`, `input`, entities, tasks, and `audio` are in the language. `draw` records shapes. The page paints them on the animation frame, after the update. A task waits on the game clock, not the wall clock. `audio` records cues. The page plays them, and rewind stays silent. A running game can restore an earlier frame. Still ahead: gallery games. The playground can already show bytecode and scrub a recorded trace of a drawing. Those stay. A measured benchmark table and a demo GIF belong to a later phase.
 
 ### draw and input
 
@@ -242,13 +244,17 @@ on tick(dt) {
 
 `beep` is a square wave. `tone` takes `sine`, `square`, `triangle`, or `saw`. `play` is `hit`, `score`, or `boom`. The frequency is a plain number. The duration is a time in seconds. The program only records the cue. The page plays the list after the script and after each tick, through Web Audio. Dragging the timeline, or stepping back along it, stops the sound and does not play it again.
 
+### Rewind
+
+While a game is playing, the timeline is a ring of machine snapshots, one every four frames, 240 at most. Drag it, or hold **R**, and the editor line, **Variables**, **Call stack**, and **Entities** jump to that frame. Let go and the game continues from the restored machine, random numbers included. The same keys from that point play the same way. Audio stays quiet during the rewind. When the buffer fills, the note under the timeline says earlier frames were dropped. A drawing that is not a game still uses the statement trace, which only redraws.
+
 ## Playground
 
 `npm run dev` opens the studio.
 
 - **Run**, or Cmd/Ctrl-Enter, draws the program on the VM. The turtle walks each line. Drag **Speed** while it is drawing; the right end of the slider finishes the picture at once.
 - **Step** pauses before the next statement. The first step highlights the line that is about to run, and the matching bytecode instruction. **Continue** runs until **Pause** or the end, without freezing the page. **Stop** leaves the debugger.
-- **Back** and **Forward**, or Alt+Left and Alt+Right, move along the recorded trace. The canvas, the highlighted line, **Variables**, and **Call stack** follow the slider.
+- **Back** and **Forward**, or Alt+Left and Alt+Right, move along the recorded trace. The canvas, the highlighted line, **Variables**, and **Call stack** follow the slider. During a game, the same slider and **R** restore the machine.
 - While paused, **Variables** shows the scope chain and **Call stack** shows the functions that are running.
 - The inspector beside the canvas has **Output**, **Tokens**, **AST**, **Bytecode**, and **Bench**. Tokens refresh as you type. Hover a tree node to mark its source; move the cursor and the matching node lights up. A parse error keeps the last good tokens and tree and shows a banner.
 - **Bytecode** lists the program before and after the optimizer. **Constant folding** and **Dead-code elimination** can each be switched off. The counts above the listing are the instruction totals, including nested functions.
@@ -262,7 +268,7 @@ on tick(dt) {
 
 - `else if` without an extra block.
 - Indexing a string, and a few more array operations (`pop`, a slice) without turning the language into a standard library.
-- Resume a run from a timeline frame, instead of only replaying the drawing.
+- Resume one debugger step from the statement trace. Game rewind already restores the machine.
 - Step one bytecode instruction, not only one statement.
 - Give the compiler slots instead of looking names up in a linked scope, which is what the nested-loop number is asking for.
 - A tree-walker path that does not pause, for people who want the readable engine to be the fast one too.
